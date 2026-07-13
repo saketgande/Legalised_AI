@@ -29,12 +29,29 @@ app.add_middleware(
 )
 
 
-def _ensure_auth_columns() -> None:
-    """Additive, idempotent DDL — create_all doesn't ALTER existing tables, so a
-    DB deployed before auth landed needs these columns added in place."""
-    with engine.begin() as conn:
-        conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS password_hash VARCHAR"))
-        conn.execute(text("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS suspended BOOLEAN DEFAULT FALSE"))
+def _run_migrations() -> None:
+    """Alembic owns the schema. Fresh DB -> build from migrations. A legacy DB
+    that predates Alembic (tables exist, no alembic_version) -> stamp head to
+    adopt it without recreating. Already-managed DB -> apply new migrations."""
+    from pathlib import Path
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import inspect
+
+    tables = set(inspect(engine).get_table_names())
+    root = Path(__file__).resolve().parent.parent  # backend/
+    cfg = Config(str(root / "alembic.ini"))
+    cfg.set_main_option("script_location", str(root / "alembic"))
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+
+    if "alembic_version" in tables:
+        command.upgrade(cfg, "head")
+    elif "app_user" in tables:
+        log.info("adopting existing pre-Alembic schema (stamp head)")
+        command.stamp(cfg, "head")
+    else:
+        command.upgrade(cfg, "head")
 
 
 def _backfill_demo_auth() -> None:
@@ -68,8 +85,7 @@ def _backfill_demo_auth() -> None:
 @app.on_event("startup")
 def _startup() -> None:
     assert_production_secrets()  # fail loud on insecure production config
-    Base.metadata.create_all(bind=engine)
-    _ensure_auth_columns()
+    _run_migrations()            # Alembic: fresh -> build, legacy -> stamp
     if settings.seed_on_start:
         from .seed import seed
 

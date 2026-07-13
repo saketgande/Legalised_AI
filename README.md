@@ -86,6 +86,7 @@ cd backend
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+alembic upgrade head                   # build the schema (also runs on app startup)
 python -m app.seed                     # org, reviewers, counterparties, playbook
 uvicorn app.main:app --reload --port 8000
 ```
@@ -125,6 +126,12 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
   the seam the inbound redline engine plugs into next.
 - **Claude is optional.** The whole product runs with no API key; generation
   falls back to deterministic assembly so the demo never breaks.
+- **Schema is Alembic-managed.** Migrations run on startup: a fresh DB is built
+  from `alembic upgrade head`; a DB that predates Alembic is adopted via `stamp`
+  (no recreation, no data loss). New schema changes are ordinary Alembic revisions.
+- **Production fail-loud.** With `ENVIRONMENT=production`, the app refuses to boot
+  without a strong `AUTH_SECRET` and an `INTAKE_WEBHOOK_SECRET` — a clear failure
+  instead of a silent weak-secret deploy.
 
 ## Not yet built (next slices)
 
@@ -133,5 +140,5 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 3. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
    poller would call it per message (no code-path change).
 4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
-5. **Alembic migrations** (skeleton uses `create_all` + startup ALTERs) and the
-   playbook-learning flywheel (learn positions from lawyer overrides).
+5. **Playbook-learning flywheel** (learn positions from lawyer overrides) and a
+   playbook admin UI.

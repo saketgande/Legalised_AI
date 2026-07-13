@@ -31,6 +31,7 @@ from ..models import (
     StepStatus,
     User,
 )
+from ..permissions import Permission, can
 from ..schemas import (
     ApproveStepIn,
     CreateRequestIn,
@@ -38,6 +39,7 @@ from ..schemas import (
     RequestSummaryOut,
     RequesterStatusOut,
 )
+from ..security import assert_can_clear_rung, current_user, require
 from ..services import esign
 from ..services.approvals import all_steps_cleared, build_ladder, ladder_for_request
 from ..services.audit import record_audit
@@ -62,6 +64,19 @@ def _org_id(db: Session) -> str:
 def _next_ref(db: Session) -> str:
     count = db.execute(select(func.count(Request.id))).scalar_one()
     return f"REQ-2026-{1000 + count + 1:04d}"
+
+
+def _owns(db: Session, user: User, r: Request) -> bool:
+    person = db.get(Person, r.requester_id)
+    return person is not None and person.email.lower() == user.email.lower()
+
+
+def _authorize_read(db: Session, user: User, r: Request) -> None:
+    if can(user.role, Permission.REQUEST_READ_ALL):
+        return
+    if can(user.role, Permission.REQUEST_READ_OWN) and _owns(db, user, r):
+        return
+    raise HTTPException(403, "not permitted to read this request")
 
 
 def _get_or_create_person(db: Session, org_id: str, name: str, email: str) -> Person:
@@ -260,9 +275,14 @@ def _detail(db: Session, r: Request) -> dict:
 
 # ————————————————————————— endpoints —————————————————————————
 @router.post("/requests", response_model=RequestDetailOut)
-def create_request(payload: CreateRequestIn, db: Session = Depends(get_db)):
-    org_id = _org_id(db)
-    requester = _get_or_create_person(db, org_id, payload.requester_name, payload.requester_email)
+def create_request(
+    payload: CreateRequestIn,
+    user: User = Depends(require(Permission.REQUEST_CREATE)),
+    db: Session = Depends(get_db),
+):
+    org_id = user.org_id
+    # the requester is the authenticated user (attribution is real, not free-text)
+    requester = _get_or_create_person(db, org_id, user.name, user.email)
     counterparty = _get_or_create_counterparty(db, org_id, payload.counterparty_name)
 
     r = Request(
@@ -283,7 +303,7 @@ def create_request(payload: CreateRequestIn, db: Session = Depends(get_db)):
     db.flush()
     record_audit(
         db, org_id=org_id, action="request.created", resource_type="Request", resource_id=r.id,
-        actor_id=requester.id, actor_type=ActorType.USER, actor_label=requester.name,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
         metadata={"counterparty": counterparty.name, "channel": payload.channel},
     )
 
@@ -340,29 +360,41 @@ def create_request(payload: CreateRequestIn, db: Session = Depends(get_db)):
 
 
 @router.get("/requests", response_model=list[RequestSummaryOut])
-def list_requests(state: str | None = None, lane: str | None = None, db: Session = Depends(get_db)):
+def list_requests(
+    state: str | None = None, lane: str | None = None,
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
     stmt = select(Request).order_by(Request.created_at.desc())
     if state:
         stmt = stmt.where(Request.state == RequestState(state))
     if lane:
         stmt = stmt.where(Request.lane == Lane(lane))
     rows = db.execute(stmt).scalars().all()
+
+    if can(user.role, Permission.REQUEST_READ_ALL):
+        pass
+    elif can(user.role, Permission.REQUEST_READ_OWN):
+        rows = [r for r in rows if _owns(db, user, r)]
+    else:
+        raise HTTPException(403, "not permitted to list requests")
     return [_summary(db, r) for r in rows]
 
 
 @router.get("/requests/{request_id}", response_model=RequestDetailOut)
-def get_request(request_id: str, db: Session = Depends(get_db)):
+def get_request(request_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     r = db.get(Request, request_id)
     if r is None:
         raise HTTPException(404, "request not found")
+    _authorize_read(db, user, r)
     return _detail(db, r)
 
 
 @router.get("/requests/{request_id}/status", response_model=RequesterStatusOut)
-def requester_status(request_id: str, db: Session = Depends(get_db)):
+def requester_status(request_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     r = db.get(Request, request_id)
     if r is None:
         raise HTTPException(404, "request not found")
+    _authorize_read(db, user, r)
     cp = db.get(Counterparty, r.counterparty_id)
     label, idx = _STAGE.get(r.state, ("Requested", 0))
 
@@ -398,24 +430,26 @@ def requester_status(request_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/approvals/steps/{step_id}/approve", response_model=RequestDetailOut)
-def approve_step(step_id: str, payload: ApproveStepIn, db: Session = Depends(get_db)):
+def approve_step(
+    step_id: str, payload: ApproveStepIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
     step = db.get(ApprovalStep, step_id)
     if step is None:
         raise HTTPException(404, "approval step not found")
     if step.status != StepStatus.PENDING:
         raise HTTPException(409, "step already decided")
+    assert_can_clear_rung(user, step.rung)  # rung-gated: seniority enforced
 
     ladder = step.ladder
     r = db.get(Request, ladder.request_id)
-    approver = db.get(User, payload.user_id) if payload.user_id else db.get(User, step.assignee_user_id)
 
     step.status = StepStatus.APPROVED
-    step.decided_by = approver.id if approver else None
+    step.decided_by = user.id
     step.decided_at = datetime.now(timezone.utc)
     record_audit(
         db, org_id=r.org_id, action="ladder.step.approved", resource_type="Request", resource_id=r.id,
-        actor_id=approver.id if approver else None, actor_type=ActorType.USER,
-        actor_label=approver.name if approver else "Reviewer",
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
         metadata={"rung": step.rung, "reason": step.reason},
     )
 
@@ -425,8 +459,7 @@ def approve_step(step_id: str, payload: ApproveStepIn, db: Session = Depends(get
         r.state = RequestState.APPROVED
         record_audit(
             db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
-            actor_id=approver.id if approver else None, actor_type=ActorType.USER,
-            actor_label=approver.name if approver else "Reviewer",
+            actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
             metadata={"steps": len(ladder.steps)},
         )
     db.commit()
@@ -435,7 +468,10 @@ def approve_step(step_id: str, payload: ApproveStepIn, db: Session = Depends(get
 
 
 @router.post("/requests/{request_id}/send", response_model=RequestDetailOut)
-def send_request(request_id: str, db: Session = Depends(get_db)):
+def send_request(
+    request_id: str,
+    user: User = Depends(require(Permission.REQUEST_SEND)), db: Session = Depends(get_db),
+):
     r = db.get(Request, request_id)
     if r is None:
         raise HTTPException(404, "request not found")
@@ -456,7 +492,10 @@ def send_request(request_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/requests/{request_id}/simulate-signature", response_model=RequestDetailOut)
-def simulate_signature(request_id: str, db: Session = Depends(get_db)):
+def simulate_signature(
+    request_id: str,
+    user: User = Depends(require(Permission.REQUEST_SEND)), db: Session = Depends(get_db),
+):
     """Stands in for the counterparty countersigning (dev only)."""
     r = db.get(Request, request_id)
     if r is None:

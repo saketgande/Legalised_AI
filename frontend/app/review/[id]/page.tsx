@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { api, type ProposedChange, type RequestDetail } from "../../../lib/api";
+import { api, RUNG_RANK, type ProposedChange, type RequestDetail } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import { Timeline } from "../../components/Timeline";
 
 /* ---------- markdown renderers ---------- */
@@ -34,7 +35,7 @@ function Md({ md, redline = false }: { md: string; redline?: boolean }) {
 }
 
 /* ---------- inbound: a single proposed-change card ---------- */
-function ChangeCard({ c, onDecide, busy }: { c: ProposedChange; onDecide: (a: "approve" | "reject" | "edit", t?: string) => void; busy: boolean }) {
+function ChangeCard({ c, onDecide, busy, canApprove }: { c: ProposedChange; onDecide: (a: "approve" | "reject" | "edit", t?: string) => void; busy: boolean; canApprove: boolean }) {
   const decided = c.decision !== "PENDING";
   return (
     <div className={`change-card ${decided ? "decided" : ""}`}>
@@ -78,14 +79,25 @@ function ChangeCard({ c, onDecide, busy }: { c: ProposedChange; onDecide: (a: "a
           {c.decision === "REJECTED" ? "✕ Rejected — their language kept" : "✓ Accepted into counter-proposal"}
         </div>
       ) : (
-        <div className="cc-actions">
-          <button className="btn primary" disabled={busy} onClick={() => onDecide("approve")}>Approve</button>
-          <button className="btn" disabled={busy} onClick={() => {
-            const t = window.prompt("Edit the proposed language:", c.after_text);
-            if (t) onDecide("edit", t);
-          }}>Edit</button>
-          <button className="btn reject" disabled={busy} onClick={() => onDecide("reject")}>Reject</button>
-        </div>
+        <>
+          <div className="cc-actions">
+            <button className="btn primary" disabled={busy || !canApprove}
+              title={canApprove ? "" : `Needs ${c.triggered_rung.replace(/_/g, " ")} sign-off`}
+              onClick={() => onDecide("approve")}>Approve</button>
+            <button className="btn" disabled={busy || !canApprove}
+              title={canApprove ? "" : `Needs ${c.triggered_rung.replace(/_/g, " ")} sign-off`}
+              onClick={() => {
+                const t = window.prompt("Edit the proposed language:", c.after_text);
+                if (t) onDecide("edit", t);
+              }}>Edit</button>
+            <button className="btn reject" disabled={busy} onClick={() => onDecide("reject")}>Reject</button>
+          </div>
+          {!canApprove && (
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              You can reject, but approving this needs {c.triggered_rung.replace(/_/g, " ")} sign-off.
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -98,10 +110,13 @@ function LanePill({ lane }: { lane: string | null }) {
 }
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
+  const { user } = useAuth();
   const [r, setR] = useState<RequestDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showCounter, setShowCounter] = useState(false);
+  const rank = user?.rank ?? 0;
+  const canClear = (rung: string) => (user?.permissions.includes("review:decide") ?? false) && rank >= (RUNG_RANK[rung] ?? 0);
 
   const load = useCallback(() => api.getRequest(params.id).then(setR).catch((e) => setErr(String(e))), [params.id]);
   useEffect(() => { load(); }, [load]);
@@ -150,7 +165,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <div className="cockpit-grid" style={{ marginTop: 16 }}>
             <div>
               {r.review!.changes.map((c) => (
-                <ChangeCard key={c.id} c={c} busy={busy}
+                <ChangeCard key={c.id} c={c} busy={busy} canApprove={canClear(c.triggered_rung)}
                   onDecide={(a, t) => act(() => api.decideChange(c.id, a, t))} />
               ))}
             </div>
@@ -230,9 +245,14 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                           <div className="why">{s.reason}</div>
                           {!done && (
                             <button className="btn primary" style={{ marginTop: 8, padding: "6px 12px", fontSize: 12.5 }}
-                              disabled={busy} onClick={() => act(() => api.approveStep(s.id))}>
-                              Approve as {s.assignee_name ?? s.rung}
+                              disabled={busy || !canClear(s.rung)}
+                              title={canClear(s.rung) ? "" : `Needs ${s.rung.replace(/_/g, " ")} sign-off`}
+                              onClick={() => act(() => api.approveStep(s.id))}>
+                              Approve as {s.rung.replace(/_/g, " ")}
                             </button>
+                          )}
+                          {!done && !canClear(s.rung) && (
+                            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Needs {s.rung.replace(/_/g, " ")} sign-off.</div>
                           )}
                         </div>
                       </div>

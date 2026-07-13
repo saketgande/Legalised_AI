@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from .config import settings
 from .db import Base, SessionLocal, engine
 from .models import Counterparty, Organization, Person, Playbook, PlaybookRule, User
+from .security import hash_password
 
 
 def _rule(pb_id, key, ordinal, clause_type, heading, position, body, rung="none", rationale="", mandatory=True):
@@ -42,12 +44,15 @@ def seed() -> None:
         db.add(org)
         db.flush()
 
+        pw = hash_password(settings.auth_demo_password)
         db.add_all(
             [
-                User(org_id=org.id, name="Dana Osei", email="dana.osei@northwind.example", role="vp_legal"),
-                User(org_id=org.id, name="Priya Nair", email="priya.nair@northwind.example", role="gc"),
-                User(org_id=org.id, name="Marcus Reid", email="marcus.reid@northwind.example", role="attorney"),
-                User(org_id=org.id, name="Admin", email="admin@northwind.example", role="admin"),
+                User(org_id=org.id, name="Dana Osei", email="dana.osei@northwind.example", role="vp_legal", password_hash=pw),
+                User(org_id=org.id, name="Priya Nair", email="priya.nair@northwind.example", role="gc", password_hash=pw),
+                User(org_id=org.id, name="Marcus Reid", email="marcus.reid@northwind.example", role="attorney", password_hash=pw),
+                User(org_id=org.id, name="Sam Carter", email="sam.carter@northwind.example", role="requester", password_hash=pw),
+                User(org_id=org.id, name="Val Ng", email="val.ng@northwind.example", role="viewer", password_hash=pw),
+                User(org_id=org.id, name="Admin", email="admin@northwind.example", role="admin", password_hash=pw),
             ]
         )
 
@@ -172,7 +177,10 @@ def seed() -> None:
         ]
         db.add_all(rules)
         db.commit()
-        print(f"• seeded org '{org.name}', 4 users, 3 counterparties, playbook with {len(rules)} rules")
+        print(f"• seeded org '{org.name}', 6 users, 3 counterparties, playbook with {len(rules)} rules")
+        print(f"• logins (password '{settings.auth_demo_password}'): admin@ / priya.nair@ (gc) / "
+              f"dana.osei@ (vp_legal) / marcus.reid@ (attorney) / sam.carter@ (requester) / val.ng@ (viewer) "
+              f"— all @northwind.example")
     finally:
         db.close()
 

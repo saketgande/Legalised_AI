@@ -54,6 +54,8 @@ Deploy. Done.
 | backend | `DATABASE_URL` | `postgresql://…` | `postgres://` / `postgresql://` auto-normalized to the psycopg2 driver |
 | backend | `CORS_ORIGINS` | `https://legalised-web.onrender.com` | comma-separated; must include the frontend origin |
 | backend | `SEED_ON_START` | `true` | idempotent — seeds only when the DB is empty |
+| backend | `AUTH_SECRET` | *(random)* | JWT signing secret — set a strong random value in prod |
+| backend | `AUTH_DEMO_PASSWORD` | `demo1234` | password the seed sets on demo logins |
 | backend | `ANTHROPIC_API_KEY` | *(optional)* | absent → deterministic generation, demo still works |
 | frontend | `NEXT_PUBLIC_API_URL` | `https://legalised-api.onrender.com` | baked at build; redeploy after changing |
 

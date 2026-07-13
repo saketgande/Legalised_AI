@@ -8,8 +8,9 @@ from pydantic import BaseModel, ConfigDict
 
 # ————————————————————————— inbound —————————————————————————
 class CreateRequestIn(BaseModel):
-    requester_name: str
-    requester_email: str
+    # requester is now the authenticated user; these are accepted but ignored
+    requester_name: str | None = None
+    requester_email: str | None = None
     counterparty_name: str
     nda_type: str = "MUTUAL"          # MUTUAL | ONE_WAY
     purpose: str = "sales_evaluation"

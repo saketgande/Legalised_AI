@@ -6,14 +6,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Organization, Playbook, PlaybookRule
+from ..models import Organization, Playbook, PlaybookRule, User
+from ..permissions import Permission
+from ..security import current_user, require
 from ..services.audit import verify_chain
 
 router = APIRouter(prefix="/api", tags=["meta"])
 
 
 @router.get("/playbook/rules")
-def list_rules(db: Session = Depends(get_db)):
+def list_rules(_: User = Depends(require(Permission.PLAYBOOK_READ)), db: Session = Depends(get_db)):
     playbook = db.execute(
         select(Playbook).where(Playbook.active == True)  # noqa: E712
     ).scalars().first()
@@ -42,7 +44,7 @@ def list_rules(db: Session = Depends(get_db)):
 
 
 @router.get("/audit/verify")
-def audit_verify(db: Session = Depends(get_db)):
+def audit_verify(_: User = Depends(current_user), db: Session = Depends(get_db)):
     org = db.execute(select(Organization)).scalars().first()
     if org is None:
         return {"intact": True, "broken_at": None, "count": 0}

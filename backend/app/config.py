@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Handy for one-click deploys where there's no separate seed step.
     seed_on_start: bool = False
 
+    # Auth. Override AUTH_SECRET in production. AUTH_DEMO_PASSWORD is the password
+    # the seed sets on every seeded user so the deployed demo is loginnable.
+    auth_secret: str = "dev-insecure-change-me"
+    auth_token_ttl_hours: int = 12
+    auth_demo_password: str = "demo1234"
+
     # Comma-separated list of allowed front-end origins. In production set
     # CORS_ORIGINS to the deployed web URL, e.g. "https://legalised-web.onrender.com".
     cors_origins_raw: str = Field(

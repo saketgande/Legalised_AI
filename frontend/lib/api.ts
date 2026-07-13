@@ -109,69 +109,105 @@ export type RequesterStatus = {
   timeline: TimelineEvent[];
 };
 
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  rank: number;
+  permissions: string[];
+  suspended: boolean;
+};
+
+// ——— token handling ———
+const TOKEN_KEY = "fd_token";
+let _token: string | null = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
+export function setToken(t: string | null) {
+  _token = t;
+  if (typeof window !== "undefined") {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  }
+}
+export function getToken() {
+  return _token;
+}
+function H(extra: Record<string, string> = {}): Record<string, string> {
+  return _token ? { ...extra, authorization: `Bearer ${_token}` } : extra;
+}
+
+export class AuthError extends Error {}
+
 async function j<T>(res: Response): Promise<T> {
+  if (res.status === 401) throw new AuthError("unauthenticated");
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    // surface FastAPI's {"detail": "..."} nicely
+    let msg = text;
+    try { msg = JSON.parse(text).detail ?? text; } catch {}
+    throw new Error(msg);
   }
   return res.json() as Promise<T>;
 }
 
+const JSON_POST = (body: unknown) => ({
+  method: "POST",
+  headers: H({ "content-type": "application/json" }),
+  body: JSON.stringify(body),
+});
+
 export const api = {
-  createRequest: (body: Record<string, unknown>) =>
-    fetch(`${BASE}/api/requests`, {
+  login: (email: string, password: string) =>
+    fetch(`${BASE}/api/auth/login`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(j<RequestDetail>),
+      body: JSON.stringify({ email, password }),
+    }).then(j<{ token: string; user: AuthUser }>),
+
+  me: () => fetch(`${BASE}/api/auth/me`, { headers: H(), cache: "no-store" }).then(j<AuthUser>),
+
+  createRequest: (body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/requests`, JSON_POST(body)).then(j<RequestDetail>),
 
   createInbound: (body: Record<string, unknown>) =>
-    fetch(`${BASE}/api/requests/inbound`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }).then(j<RequestDetail>),
+    fetch(`${BASE}/api/requests/inbound`, JSON_POST(body)).then(j<RequestDetail>),
 
   decideChange: (changeId: string, action: "approve" | "reject" | "edit", edited_after_text?: string) =>
-    fetch(`${BASE}/api/changes/${changeId}/decide`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action, edited_after_text }),
-    }).then(j<RequestDetail>),
+    fetch(`${BASE}/api/changes/${changeId}/decide`, JSON_POST({ action, edited_after_text })).then(j<RequestDetail>),
 
   listRequests: (q: { state?: string; lane?: string } = {}) => {
     const p = new URLSearchParams(q as Record<string, string>).toString();
-    return fetch(`${BASE}/api/requests${p ? "?" + p : ""}`, { cache: "no-store" }).then(
-      j<RequestSummary[]>,
-    );
+    return fetch(`${BASE}/api/requests${p ? "?" + p : ""}`, { cache: "no-store", headers: H() }).then(j<RequestSummary[]>);
   },
 
   getRequest: (id: string) =>
-    fetch(`${BASE}/api/requests/${id}`, { cache: "no-store" }).then(j<RequestDetail>),
+    fetch(`${BASE}/api/requests/${id}`, { cache: "no-store", headers: H() }).then(j<RequestDetail>),
 
   requesterStatus: (id: string) =>
-    fetch(`${BASE}/api/requests/${id}/status`, { cache: "no-store" }).then(j<RequesterStatus>),
+    fetch(`${BASE}/api/requests/${id}/status`, { cache: "no-store", headers: H() }).then(j<RequesterStatus>),
 
   approveStep: (stepId: string) =>
-    fetch(`${BASE}/api/approvals/steps/${stepId}/approve`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    }).then(j<RequestDetail>),
+    fetch(`${BASE}/api/approvals/steps/${stepId}/approve`, JSON_POST({})).then(j<RequestDetail>),
 
   send: (id: string) =>
-    fetch(`${BASE}/api/requests/${id}/send`, { method: "POST" }).then(j<RequestDetail>),
+    fetch(`${BASE}/api/requests/${id}/send`, { method: "POST", headers: H() }).then(j<RequestDetail>),
 
   simulateSignature: (id: string) =>
-    fetch(`${BASE}/api/requests/${id}/simulate-signature`, { method: "POST" }).then(
-      j<RequestDetail>,
-    ),
+    fetch(`${BASE}/api/requests/${id}/simulate-signature`, { method: "POST", headers: H() }).then(j<RequestDetail>),
 
   verifyAudit: () =>
-    fetch(`${BASE}/api/audit/verify`, { cache: "no-store" }).then(
+    fetch(`${BASE}/api/audit/verify`, { cache: "no-store", headers: H() }).then(
       j<{ intact: boolean; broken_at: number | null; count: number }>,
     ),
+
+  // admin
+  listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),
+  changeUserRole: (userId: string, role: string) =>
+    fetch(`${BASE}/api/admin/users/${userId}/role`, { method: "PATCH", headers: H({ "content-type": "application/json" }), body: JSON.stringify({ role }) }).then(j<AuthUser>),
 };
+
+// rung rank must mirror the backend so the UI can pre-check approval ability
+export const RUNG_RANK: Record<string, number> = { none: 0, requesting_manager: 3, vp_legal: 5, gc: 6 };
 
 export const PURPOSES = [
   { value: "sales_evaluation", label: "Sales evaluation" },

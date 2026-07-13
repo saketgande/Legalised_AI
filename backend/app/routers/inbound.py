@@ -28,7 +28,9 @@ from ..models import (
     ReviewRun,
     User,
 )
+from ..permissions import Permission
 from ..schemas import CreateInboundIn, DecideChangeIn, RequestDetailOut
+from ..security import assert_can_clear_rung, current_user, require
 from ..services.audit import record_audit
 from ..services.redline import classify, run_inbound_review, segment
 from . import requests as R
@@ -37,9 +39,13 @@ router = APIRouter(prefix="/api", tags=["inbound"])
 
 
 @router.post("/requests/inbound", response_model=RequestDetailOut)
-def create_inbound(payload: CreateInboundIn, db: Session = Depends(get_db)):
-    org_id = R._org_id(db)
-    requester = R._get_or_create_person(db, org_id, payload.requester_name, payload.requester_email)
+def create_inbound(
+    payload: CreateInboundIn,
+    user: User = Depends(require(Permission.REQUEST_READ_ALL)),  # inbound review is a legal-staff action
+    db: Session = Depends(get_db),
+):
+    org_id = user.org_id
+    requester = R._get_or_create_person(db, org_id, user.name, user.email)
     counterparty = R._get_or_create_counterparty(db, org_id, payload.counterparty_name)
 
     r = Request(
@@ -61,7 +67,7 @@ def create_inbound(payload: CreateInboundIn, db: Session = Depends(get_db)):
     db.flush()
     record_audit(
         db, org_id=org_id, action="request.created", resource_type="Request", resource_id=r.id,
-        actor_id=requester.id, actor_type=ActorType.USER, actor_label=requester.name,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
         metadata={"counterparty": counterparty.name, "direction": "INBOUND", "channel": "EMAIL"},
     )
     record_audit(
@@ -106,9 +112,11 @@ def create_inbound(payload: CreateInboundIn, db: Session = Depends(get_db)):
 
 
 @router.post("/changes/{change_id}/decide", response_model=RequestDetailOut)
-def decide_change(change_id: str, payload: DecideChangeIn, db: Session = Depends(get_db)):
-    """approve / edit / reject a single proposed change — the human gate.
-    `action` is inferred: edited_after_text present -> APPROVED_WITH_EDIT."""
+def decide_change(
+    change_id: str, payload: DecideChangeIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
+    """approve / edit / reject a single proposed change — the human gate."""
     change = db.get(ProposedChange, change_id)
     if change is None:
         raise HTTPException(404, "proposed change not found")
@@ -119,15 +127,17 @@ def decide_change(change_id: str, payload: DecideChangeIn, db: Session = Depends
         raise HTTPException(400, "edit requires edited_after_text")
     if change.decision != "PENDING":
         raise HTTPException(409, "change already decided")
+    # rung-gated: approving a deviation that needs GC requires GC-rank (rejecting is always allowed)
+    if action != "REJECTED":
+        assert_can_clear_rung(user, change.triggered_rung)
 
     run = db.get(ReviewRun, change.run_id)
     r = db.get(Request, run.request_id)
-    actor = db.get(User, payload.user_id) if payload.user_id else None
 
     change.decision = action
     if action == "APPROVED_WITH_EDIT" and payload.edited_after_text is not None:
         change.after_text = payload.edited_after_text
-    change.decided_by = actor.id if actor else None
+    change.decided_by = user.id
     change.decided_at = datetime.now(timezone.utc)
 
     record_audit(
@@ -135,23 +145,18 @@ def decide_change(change_id: str, payload: DecideChangeIn, db: Session = Depends
         action={"APPROVED": "change.approved", "APPROVED_WITH_EDIT": "change.approved_with_edit",
                 "REJECTED": "change.rejected"}[action],
         resource_type="Request", resource_id=r.id,
-        actor_id=actor.id if actor else None,
-        actor_type=ActorType.USER if actor else ActorType.SYSTEM,
-        actor_label=actor.name if actor else "Reviewer",
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
         metadata={"finding": change.finding, "heading": change.heading, "rule_key": change.rule_key,
                   "rung": change.triggered_rung},
     )
 
-    # when nothing is pending, the review is done -> ready to send the counter
     db.flush()
     db.refresh(run)
     if all(c.decision != "PENDING" for c in run.changes):
         r.state = RequestState.APPROVED
         record_audit(
             db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
-            actor_id=actor.id if actor else None,
-            actor_type=ActorType.USER if actor else ActorType.SYSTEM,
-            actor_label=actor.name if actor else "Reviewer",
+            actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
             metadata={"changes": len(run.changes)},
         )
     db.commit()

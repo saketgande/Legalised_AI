@@ -96,13 +96,15 @@ class Organization(Base):
 
 
 class User(Base):
-    """Internal legal / admin users (reviewers, approvers)."""
+    """Internal legal / admin users (reviewers, approvers) + requesters."""
     __tablename__ = "app_user"
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False)
-    role: Mapped[str] = mapped_column(String, nullable=False, default="attorney")  # gc | vp_legal | attorney | admin
+    role: Mapped[str] = mapped_column(String, nullable=False, default="attorney")
+    password_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    suspended: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

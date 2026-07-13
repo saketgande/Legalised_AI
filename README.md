@@ -45,6 +45,13 @@ Request (the spine)
   the first break. The header badge reads "✓ Audit chain intact".
 - **Two faces, one spine**: a requester package-tracker (`/r/[id]`) and a lawyer
   review cockpit (`/review/[id]`), plus a triage inbox (`/inbox`).
+- **Auth + RBAC**: email/password login (JWT bearer), 8 roles, and a permission
+  model. Two authorization layers: permission grants (can you take this kind of
+  action?) and **rung-gated approval** — a deviation that triggers the `gc` rung
+  can only be cleared by someone of GC rank or above, so an attorney approving it
+  is a 403, not a silent pass. Requesters see only their own requests; every
+  mutation attributes to the authenticated user in the audit chain. Admin UI at
+  `/admin` for role management (last-admin guard, chain-sealed).
 - **Inbound redline engine** (`/inbound`): paste a counterparty's NDA → it's
   segmented into clauses, classified against the playbook, and checked by a
   **hybrid** engine — *deterministic* validators for the things LLMs get wrong

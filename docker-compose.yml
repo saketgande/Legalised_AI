@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: frontdoor-pg
+    environment:
+      POSTGRES_USER: frontdoor
+      POSTGRES_PASSWORD: frontdoor
+      POSTGRES_DB: frontdoor
+    ports:
+      - "5432:5432"
+    volumes:
+      - frontdoor_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frontdoor"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  frontdoor_pgdata:

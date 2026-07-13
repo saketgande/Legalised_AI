@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+backend/.env
+*.log
+
+# Node / Next
+node_modules/
+frontend/.next/
+frontend/out/
+.env.local
+
+# Playwright / scratch
+shots/
+pgdata/
+pgsock/

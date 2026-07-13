@@ -149,34 +149,19 @@ def _fill(template: str, ctx: dict) -> str:
 
 
 def _check_liability(body: str) -> tuple[bool, list[dict]]:
-    """Returns (is_deviation, checks)."""
-    checks: list[dict] = []
-    deviation = False
-
+    """DETERMINISTIC only — parse the cap and compare to our floor. The
+    confidentiality carve-out (a semantic judgement) is handled by the AI layer."""
     cap = extract_months(body)
     if cap is not None:
         ok = cap >= LIABILITY_CAP_FLOOR_MONTHS
-        checks.append({
+        return (not ok), [{
             "kind": "DETERMINISTIC", "name": "liability_cap_floor", "passed": ok,
             "detail": f"parsed cap = {cap}mo vs floor {LIABILITY_CAP_FLOOR_MONTHS}mo",
-        })
-        deviation = deviation or not ok
-    else:
-        checks.append({
-            "kind": "DETERMINISTIC", "name": "liability_cap_floor", "passed": False,
-            "detail": "no numeric cap found — needs an explicit fees-based cap",
-        })
-        deviation = True
-
-    t = body.lower()
-    has_carveout = "confidential" in t and any(w in t for w in ("except", "nothing", "excluding", "other than"))
-    checks.append({
-        "kind": "SEMANTIC", "name": "confidentiality_carveout", "passed": has_carveout,
-        "detail": "carve-out for confidentiality breach present" if has_carveout
-                  else "no carve-out for breach of confidentiality — our position requires one",
-    })
-    deviation = deviation or not has_carveout
-    return deviation, checks
+        }]
+    return True, [{
+        "kind": "DETERMINISTIC", "name": "liability_cap_floor", "passed": False,
+        "detail": "no numeric cap found — needs an explicit fees-based cap",
+    }]
 
 
 def _check_term(body: str) -> tuple[bool, list[dict]]:
@@ -217,7 +202,10 @@ _CONFIDENCE = {"limitation_of_liability": 0.86, "term": 0.95, "governing_law": 0
 
 
 # ————————————————————————— the run —————————————————————————
-def run_inbound_review(db: Session, request: Request) -> ReviewRun:
+def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
+    from .ai import get_ai_client
+
+    ai = ai or get_ai_client()
     doc = db.get(Document, request.document_id)
     version = db.get(DocumentVersion, doc.current_version_id)
     clauses = db.execute(
@@ -249,34 +237,58 @@ def run_inbound_review(db: Session, request: Request) -> ReviewRun:
         if ctype:
             seen_types.add(ctype)
         rule = rule_by_type.get(ctype) if ctype else None
-        checker = _CHECKERS.get(ctype) if ctype else None
 
-        if checker is None:
-            if rule is None:
-                ordinal += 1
-                changes.append(ProposedChange(
-                    run_id=run.id, ordinal=ordinal, clause_id=clause.id,
-                    section_no=clause.section_no, heading=clause.heading or "Unrecognised clause",
-                    finding="NOVEL", rule_key=None,
-                    before_text=clause.body_text, after_text="",
-                    rationale="We have no playbook position on this clause — a human should read it.",
-                    checks=[{"kind": "SEMANTIC", "name": "playbook_match", "passed": False,
-                             "detail": "no matching playbook rule"}],
-                    confidence=None, triggered_rung="none",
-                ))
+        if rule is None:  # no playbook position -> a human should read it
+            ordinal += 1
+            changes.append(ProposedChange(
+                run_id=run.id, ordinal=ordinal, clause_id=clause.id,
+                section_no=clause.section_no, heading=clause.heading or "Unrecognised clause",
+                finding="NOVEL", rule_key=None,
+                before_text=clause.body_text, after_text="",
+                rationale="We have no playbook position on this clause — a human should read it.",
+                checks=[{"kind": "SEMANTIC", "name": "playbook_match", "passed": False,
+                         "detail": "no matching playbook rule"}],
+                confidence=None, triggered_rung="none",
+            ))
             continue
 
-        is_dev, checks = checker(clause.body_text)
-        if is_dev and rule is not None:
+        checks: list[dict] = []
+        is_dev = False
+        after = _fill(rule.preferred_body, ctx)
+        conf: float | None = None
+
+        # DETERMINISTIC layer — numbers/dates the LLM shouldn't be trusted with
+        checker = _CHECKERS.get(ctype)
+        if checker:
+            det_dev, det_checks = checker(clause.body_text)
+            checks += det_checks
+            if det_dev:
+                is_dev = True
+                conf = _CONFIDENCE.get(ctype, conf)
+
+        # SEMANTIC layer — Claude (or heuristic fallback); may abstain (None)
+        verdict = ai.compare_clause(clause.body_text, rule, ctx)
+        if verdict is not None:
+            checks.append({
+                "kind": "SEMANTIC", "name": "position_match", "passed": verdict.matches,
+                "detail": verdict.note, "model": verdict.model,
+            })
+            if not verdict.matches:
+                is_dev = True
+                if verdict.suggested_after:
+                    after = verdict.suggested_after
+                if conf is None:
+                    conf = verdict.confidence
+
+        if is_dev:
             ordinal += 1
             changes.append(ProposedChange(
                 run_id=run.id, ordinal=ordinal, clause_id=clause.id,
                 section_no=clause.section_no, heading=rule.heading,
                 finding="DEVIATION", rule_key=rule.rule_key,
-                before_text=clause.body_text, after_text=_fill(rule.preferred_body, ctx),
+                before_text=clause.body_text, after_text=after,
                 rationale=rule.rationale or f"Outside our position on {rule.heading.lower()}.",
-                checks=checks, confidence=_CONFIDENCE.get(ctype),
-                triggered_rung=rule.deviation_rung,
+                checks=checks, confidence=conf, triggered_rung=rule.deviation_rung,
             ))
 
     # 2) mandatory clauses the counterparty omitted entirely

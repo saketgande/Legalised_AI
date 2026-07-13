@@ -60,7 +60,7 @@ export type RequestSummary = {
   open_steps: number;
 };
 
-export type Check = { kind: string; name: string; passed: boolean; detail: string };
+export type Check = { kind: string; name: string; passed: boolean; detail: string; model?: string };
 
 export type ProposedChange = {
   id: string;

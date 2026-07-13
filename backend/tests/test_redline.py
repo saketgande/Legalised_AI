@@ -35,18 +35,17 @@ def test_classify():
     assert R.classify("Random Heading", "unrelated prose about nothing") is None
 
 
-def test_liability_check_flags_low_cap_and_missing_carveout():
+def test_liability_check_flags_low_cap():
+    # deterministic layer: numeric cap only (carve-out moved to the semantic layer)
     dev, checks = R._check_liability("total liability exceed the fees paid in the six (6) months")
     assert dev is True
-    names = {c["name"]: c["passed"] for c in checks}
-    assert names["liability_cap_floor"] is False       # 6 < 12
-    assert names["confidentiality_carveout"] is False  # no carve-out
+    assert checks[0]["name"] == "liability_cap_floor"
+    assert checks[0]["passed"] is False   # 6 < 12
+    assert checks[0]["kind"] == "DETERMINISTIC"
 
 
-def test_liability_check_passes_compliant_clause():
-    body = ("Except for breaches of confidentiality obligations, neither party's liability shall "
-            "exceed the fees paid in the twelve (12) months preceding the claim.")
-    dev, checks = R._check_liability(body)
+def test_liability_check_passes_compliant_cap():
+    dev, checks = R._check_liability("liability shall not exceed the fees paid in the twelve (12) months")
     assert dev is False
 
 

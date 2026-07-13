@@ -56,7 +56,11 @@ Request (the spine)
   segmented into clauses, classified against the playbook, and checked by a
   **hybrid** engine — *deterministic* validators for the things LLMs get wrong
   (liability cap / term in months, governing-law jurisdiction, missing mandatory
-  clauses) and *semantic* checks for positions (confidentiality carve-out). Each
+  clauses) and *semantic* checks routed through **Claude** (`services/ai.py`) —
+  "does this prose actually meet our position?" — with a keyword heuristic
+  fallback so it runs with no API key. Set `ANTHROPIC_API_KEY` to turn on real
+  model analysis; Claude failures degrade to the heuristic, never breaking the
+  review. Each
   finding is a **proposed redline in PENDING state** (the AgentDecision gate);
   nothing enters the counter-proposal until a human approves it. The request
   becomes sendable only once every change is decided.
@@ -116,12 +120,10 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 ## Not yet built (next slices)
 
-1. **Real LLM semantic checks** — the semantic checks are heuristic today; the
-   `semantic_*` seam in `redline.py` swaps in `@aegis/ai`-routed Claude calls
-   without changing callers. Deterministic checks stay as-is.
-2. **.docx ingestion** — inbound review takes pasted text today; add a Word/PDF
-   parser feeding the same `segment()` → `Clause[]` path.
-3. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
+1. **.docx / PDF ingestion** — inbound review takes pasted text today; add a
+   Word/PDF parser feeding the same `segment()` → `Clause[]` path.
+2. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
+3. **Multi-channel intake** — email webhook + chatbot into the same pipeline.
 4. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
-5. **Auth / RBAC**, Alembic migrations (skeleton uses `create_all`), and the
+5. **Alembic migrations** (skeleton uses `create_all` + startup ALTERs) and the
    playbook-learning flywheel (learn positions from lawyer overrides).

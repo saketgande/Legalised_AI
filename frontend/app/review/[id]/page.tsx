@@ -50,7 +50,11 @@ function ChangeCard({ c, onDecide, busy, canApprove }: { c: ProposedChange; onDe
         {c.checks.map((ch, i) => (
           <div key={i} className={`chk2 ${ch.passed ? "pass" : "fail"}`}>
             <span className="ci2">{ch.passed ? "✓" : "✕"}</span>
-            <span className="cx2"><span className={`kind ${ch.kind}`}>{ch.kind === "DETERMINISTIC" ? "DET" : "SEM"}</span>{ch.detail}</span>
+            <span className="cx2">
+              <span className={`kind ${ch.kind}`}>{ch.kind === "DETERMINISTIC" ? "DET" : "SEM"}</span>
+              {ch.detail}
+              {ch.model && ch.model !== "heuristic" && <span className="model-tag">🤖 {ch.model}</span>}
+            </span>
           </div>
         ))}
       </div>

@@ -203,6 +203,7 @@ button { font-family: inherit; }
 .chk2 .kind.DETERMINISTIC { background: var(--good-soft); color: var(--good); }
 .chk2 .kind.SEMANTIC { background: var(--accent-soft); color: var(--accent); }
 .chk2 .cx2 { color: var(--muted); }
+.chk2 .model-tag { display: inline-block; margin-left: 6px; font-family: var(--mono); font-size: 9.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); padding: 0 5px; border-radius: 4px; }
 
 .cc-cite { display: flex; gap: 8px; font-size: 11.5px; color: var(--muted); border-left: 2px solid var(--accent); padding: 2px 0 2px 9px; margin: 0 0 10px; }
 .cc-cite b { color: var(--ink); font-weight: 600; }

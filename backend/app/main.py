@@ -5,13 +5,18 @@ Mounts the request flow + meta routers and opens CORS to the Next.js dev origin.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from .config import settings
+from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
 from .routers import admin, auth, inbound, intake, meta, requests
+
+log = logging.getLogger("frontdoor")
 
 app = FastAPI(title="Frontdoor — NDA wedge API", version="0.1.0")
 
@@ -62,6 +67,7 @@ def _backfill_demo_auth() -> None:
 
 @app.on_event("startup")
 def _startup() -> None:
+    assert_production_secrets()  # fail loud on insecure production config
     Base.metadata.create_all(bind=engine)
     _ensure_auth_columns()
     if settings.seed_on_start:
@@ -71,9 +77,26 @@ def _startup() -> None:
     _backfill_demo_auth()
 
 
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    # never leak internals / stack traces to clients
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "service": "frontdoor-api"}
+
+
+@app.get("/api/health/ready")
+def ready() -> dict:
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(status_code=503, content={"ok": False, "db": "unavailable"})
+    return {"ok": True, "db": "up"}
 
 
 app.include_router(auth.router)

@@ -24,7 +24,11 @@ export default function Login() {
     e.preventDefault();
     setBusy(true); setErr(null);
     try { await login(email, password); router.push("/"); }
-    catch { setErr("Invalid email or password."); setBusy(false); }
+    catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      setErr(msg && !/unauthenticated/i.test(msg) ? msg : "Invalid email or password.");
+      setBusy(false);
+    }
   }
 
   return (

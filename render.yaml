@@ -26,10 +26,14 @@ services:
         fromDatabase:
           name: legalised-db
           property: connectionString
+      - key: ENVIRONMENT
+        value: production     # turns on fail-loud secret guards at startup
       - key: SEED_ON_START
         value: "true"
       - key: AUTH_SECRET
-        generateValue: true   # random JWT signing secret
+        generateValue: true   # random JWT signing secret (>=16 chars)
+      - key: INTAKE_WEBHOOK_SECRET
+        generateValue: true   # required in production; sent as X-Intake-Secret
       - key: CORS_ORIGINS
         sync: false          # set to the web service URL after first deploy
       - key: PYTHON_VERSION

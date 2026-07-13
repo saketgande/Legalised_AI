@@ -139,7 +139,14 @@ function H(extra: Record<string, string> = {}): Record<string, string> {
 export class AuthError extends Error {}
 
 async function j<T>(res: Response): Promise<T> {
-  if (res.status === 401) throw new AuthError("unauthenticated");
+  if (res.status === 401) {
+    // token missing/expired -> drop it and bounce to login (except while logging in)
+    setToken(null);
+    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.href = "/login";
+    }
+    throw new AuthError("unauthenticated");
+  }
   if (!res.ok) {
     const text = await res.text();
     // surface FastAPI's {"detail": "..."} nicely

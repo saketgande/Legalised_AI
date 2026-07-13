@@ -8,8 +8,14 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+DEV_AUTH_SECRET = "dev-insecure-change-me"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    # "development" | "production" — production turns on fail-loud secret guards.
+    environment: str = "development"
 
     database_url: str = "postgresql+psycopg2://frontdoor:frontdoor@localhost:5432/frontdoor"
 
@@ -65,5 +71,25 @@ class Settings(BaseSettings):
     ]
     auto_allowed_jurisdictions: list[str] = ["US", "US-CA", "US-NY", "US-DE"]
 
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
 
 settings = Settings()
+
+
+def assert_production_secrets() -> None:
+    """Fail loud at startup if a production deploy is missing hardened secrets —
+    better a clear boot failure than silently shipping the dev signing key."""
+    if not settings.is_production:
+        return
+    problems: list[str] = []
+    if settings.auth_secret == DEV_AUTH_SECRET or len(settings.auth_secret) < 16:
+        problems.append("AUTH_SECRET must be a strong random value (>=16 chars)")
+    if not settings.intake_webhook_secret:
+        problems.append("INTAKE_WEBHOOK_SECRET must be set so the email webhook isn't open")
+    if problems:
+        raise RuntimeError(
+            "Refusing to start in production — insecure config:\n  - " + "\n  - ".join(problems)
+        )

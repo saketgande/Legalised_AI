@@ -54,8 +54,18 @@ Deploy. Done.
 | backend | `DATABASE_URL` | `postgresql://…` | `postgres://` / `postgresql://` auto-normalized to the psycopg2 driver |
 | backend | `CORS_ORIGINS` | `https://legalised-web.onrender.com` | comma-separated; must include the frontend origin |
 | backend | `SEED_ON_START` | `true` | idempotent — seeds only when the DB is empty |
-| backend | `AUTH_SECRET` | *(random)* | JWT signing secret — set a strong random value in prod |
+| backend | `ENVIRONMENT` | `production` | turns on fail-loud secret guards; refuses to boot without the two secrets below |
+| backend | `AUTH_SECRET` | *(random)* | JWT signing secret — must be a strong random value (>=16 chars) in prod |
+| backend | `INTAKE_WEBHOOK_SECRET` | *(random)* | required in prod; email webhook then requires the `X-Intake-Secret` header |
 | backend | `AUTH_DEMO_PASSWORD` | `demo1234` | password the seed sets on demo logins |
+
+> **Enabling production hardening on an existing deploy:** Render applies
+> `render.yaml` env changes only on a manual **blueprint sync**, so an existing
+> service keeps running in development mode until you either sync the blueprint or
+> set `ENVIRONMENT=production` + `INTAKE_WEBHOOK_SECRET` + a strong `AUTH_SECRET`
+> on the service. Once `ENVIRONMENT=production`, the app refuses to start unless
+> those secrets are present — a clear boot failure instead of a silent weak-secret
+> deploy.
 | backend | `ANTHROPIC_API_KEY` | *(optional)* | absent → deterministic generation, demo still works |
 | frontend | `NEXT_PUBLIC_API_URL` | `https://legalised-api.onrender.com` | baked at build; redeploy after changing |
 

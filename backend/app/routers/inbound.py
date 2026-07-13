@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -32,64 +32,56 @@ from ..permissions import Permission
 from ..schemas import CreateInboundIn, DecideChangeIn, RequestDetailOut
 from ..security import assert_can_clear_rung, current_user, require
 from ..services.audit import record_audit
+from ..services.extract import extract_text
 from ..services.redline import classify, run_inbound_review, segment
 from . import requests as R
 
 router = APIRouter(prefix="/api", tags=["inbound"])
 
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
-@router.post("/requests/inbound", response_model=RequestDetailOut)
-def create_inbound(
-    payload: CreateInboundIn,
-    user: User = Depends(require(Permission.REQUEST_READ_ALL)),  # inbound review is a legal-staff action
-    db: Session = Depends(get_db),
-):
+
+def _ingest_inbound(
+    db: Session, user: User, *, counterparty_name: str, nda_type: str, purpose: str,
+    body_text: str, source: str,
+) -> Request:
+    """Shared core: build the request + document from extracted text and run the
+    engine. Both the paste and file-upload endpoints funnel through here."""
     org_id = user.org_id
     requester = R._get_or_create_person(db, org_id, user.name, user.email)
-    counterparty = R._get_or_create_counterparty(db, org_id, payload.counterparty_name)
+    counterparty = R._get_or_create_counterparty(db, org_id, counterparty_name)
 
     r = Request(
-        ref=R._next_ref(db),
-        org_id=org_id,
-        type="NDA",
-        direction=Direction.INBOUND,
-        nda_type=NdaType(payload.nda_type),
-        our_role=OurRole.RECIPIENT,
-        state=RequestState.NEW,
-        requester_id=requester.id,
-        counterparty_id=counterparty.id,
-        purpose=payload.purpose,
-        jurisdiction="US",
-        term_months=24,
-        channel="EMAIL",
+        ref=R._next_ref(db), org_id=org_id, type="NDA",
+        direction=Direction.INBOUND, nda_type=NdaType(nda_type), our_role=OurRole.RECIPIENT,
+        state=RequestState.NEW, requester_id=requester.id, counterparty_id=counterparty.id,
+        purpose=purpose, jurisdiction="US", term_months=24, channel="EMAIL",
     )
     db.add(r)
     db.flush()
     record_audit(
         db, org_id=org_id, action="request.created", resource_type="Request", resource_id=r.id,
         actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-        metadata={"counterparty": counterparty.name, "direction": "INBOUND", "channel": "EMAIL"},
+        metadata={"counterparty": counterparty.name, "direction": "INBOUND", "source": source},
     )
     record_audit(
         db, org_id=org_id, action="request.classified", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.AGENT, actor_label="Intake Assistant",
-        metadata={"direction": "INBOUND", "type": "NDA", "role": "RECIPIENT"},
+        metadata={"direction": "INBOUND", "type": "NDA", "role": "RECIPIENT", "source": source},
     )
 
-    # segment the pasted paper into an addressable document
     title = f"{counterparty.name} — inbound NDA (their paper)"
     doc = Document(org_id=org_id, request_id=r.id, origin="UPLOADED", title=title)
     db.add(doc)
     db.flush()
     version = DocumentVersion(
-        document_id=doc.id, version_no=1,
-        body_markdown=payload.body_text,
-        content_hash=hashlib.sha256(payload.body_text.encode("utf-8")).hexdigest(),
-        generated_by="counterparty-upload",
+        document_id=doc.id, version_no=1, body_markdown=body_text,
+        content_hash=hashlib.sha256(body_text.encode("utf-8")).hexdigest(),
+        generated_by=f"counterparty-{source}",
     )
     db.add(version)
     db.flush()
-    for i, (section_no, heading, body) in enumerate(segment(payload.body_text), start=1):
+    for i, (section_no, heading, body) in enumerate(segment(body_text), start=1):
         db.add(Clause(
             document_version_id=version.id, ordinal=i, section_no=section_no or str(i),
             clause_type=classify(heading, body), heading=heading, body_text=body,
@@ -98,16 +90,49 @@ def create_inbound(
     r.document_id = doc.id
     db.flush()
 
-    # run the hybrid engine
     run = run_inbound_review(db, r)
     r.state = RequestState.IN_REVIEW
     record_audit(
         db, org_id=org_id, action="review.completed", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.AGENT, actor_label="Redline Engine",
-        metadata={"summary": run.summary, "proposed_changes": len(run.changes)},
+        metadata={"summary": run.summary, "proposed_changes": len(run.changes), "source": source},
     )
     db.commit()
     db.refresh(r)
+    return r
+
+
+@router.post("/requests/inbound", response_model=RequestDetailOut)
+def create_inbound(
+    payload: CreateInboundIn,
+    user: User = Depends(require(Permission.REQUEST_READ_ALL)),  # inbound review is a legal-staff action
+    db: Session = Depends(get_db),
+):
+    r = _ingest_inbound(
+        db, user, counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
+        purpose=payload.purpose, body_text=payload.body_text, source="paste",
+    )
+    return R._detail(db, r)
+
+
+@router.post("/requests/inbound/upload", response_model=RequestDetailOut)
+def create_inbound_upload(
+    counterparty_name: str = Form(...),
+    nda_type: str = Form("MUTUAL"),
+    purpose: str = Form("vendor_evaluation"),
+    file: UploadFile = File(...),
+    user: User = Depends(require(Permission.REQUEST_READ_ALL)),
+    db: Session = Depends(get_db),
+):
+    content = file.file.read()
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "file too large (max 10 MB)")
+    body_text = extract_text(file.filename or "", content)  # raises 415 on unsupported type
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    r = _ingest_inbound(
+        db, user, counterparty_name=counterparty_name, nda_type=nda_type,
+        purpose=purpose, body_text=body_text, source=ext or "file",
+    )
     return R._detail(db, r)
 
 

@@ -105,6 +105,9 @@ button { font-family: inherit; }
   border: 1px solid var(--hairline); background: var(--surface); color: var(--ink);
 }
 .field input:focus, .field select:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
+.dropzone { display: flex; align-items: center; justify-content: center; text-align: center; padding: 26px 16px; border: 1.5px dashed var(--hairline); border-radius: 10px; background: var(--surface-2); cursor: pointer; font-size: 13.5px; }
+.dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
+
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 560px) { .row2 { grid-template-columns: 1fr; } }
 

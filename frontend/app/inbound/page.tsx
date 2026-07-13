@@ -20,8 +20,10 @@ This Agreement shall be governed by and construed in accordance with the laws of
 
 export default function InboundReview() {
   const router = useRouter();
+  const [mode, setMode] = useState<"paste" | "file">("paste");
   const [counterparty, setCounterparty] = useState("Globex LLC");
   const [body, setBody] = useState(SAMPLE);
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -30,15 +32,13 @@ export default function InboundReview() {
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.createInbound({
-        counterparty_name: counterparty,
-        nda_type: "ONE_WAY",
-        purpose: "vendor_evaluation",
-        body_text: body,
-      });
+      const fields = { counterparty_name: counterparty, nda_type: "ONE_WAY", purpose: "vendor_evaluation" };
+      const r = mode === "file" && file
+        ? await api.createInboundUpload(fields, file)
+        : await api.createInbound({ ...fields, body_text: body });
       router.push(`/review/${r.id}`);
     } catch (e2) {
-      setErr(String(e2));
+      setErr(String(e2).replace(/^Error:\s*/, ""));
       setBusy(false);
     }
   }
@@ -53,30 +53,53 @@ export default function InboundReview() {
         redlines you approve or reject.
       </p>
 
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <button type="button" className={`btn ${mode === "paste" ? "primary" : "ghost"}`} onClick={() => setMode("paste")}>Paste text</button>
+        <button type="button" className={`btn ${mode === "file" ? "primary" : "ghost"}`} onClick={() => setMode("file")}>Upload file</button>
+      </div>
+
       <form onSubmit={submit} className="card" style={{ padding: 24 }}>
         <div className="field">
           <label>Counterparty</label>
           <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} required />
         </div>
-        <div className="field">
-          <label>Their NDA text</label>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={16}
-            style={{
-              fontFamily: "var(--mono)", fontSize: 12.5, lineHeight: 1.6, padding: "12px 14px",
-              borderRadius: 9, border: "1px solid var(--hairline)", background: "var(--surface)",
-              color: "var(--ink)", resize: "vertical",
-            }}
-          />
-        </div>
+
+        {mode === "paste" ? (
+          <div className="field">
+            <label>Their NDA text</label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              rows={16}
+              style={{
+                fontFamily: "var(--mono)", fontSize: 12.5, lineHeight: 1.6, padding: "12px 14px",
+                borderRadius: 9, border: "1px solid var(--hairline)", background: "var(--surface)",
+                color: "var(--ink)", resize: "vertical",
+              }}
+            />
+          </div>
+        ) : (
+          <div className="field">
+            <label>Their NDA file (.docx, .pdf, .txt)</label>
+            <label className="dropzone">
+              <input type="file" accept=".docx,.pdf,.txt,.md" style={{ display: "none" }}
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+              {file ? (
+                <span><b>{file.name}</b> · {(file.size / 1024).toFixed(0)} KB — click to change</span>
+              ) : (
+                <span className="muted">📄 Click to choose a .docx or .pdf file</span>
+              )}
+            </label>
+          </div>
+        )}
+
         {err && <div className="notice warn" style={{ marginBottom: 14 }}>{err}</div>}
         <p className="muted" style={{ fontSize: 12.5, marginBottom: 16 }}>
-          Prefilled with a deliberately aggressive sample (6-month liability cap, no confidentiality
-          carve-out, 60-month term, English law, several missing clauses) so you can see the engine work.
+          {mode === "paste"
+            ? "Prefilled with a deliberately aggressive sample (6-month liability cap, no carve-out, 60-month term, English law, missing clauses) so you can see the engine work."
+            : "The file's text is extracted and run through the same engine. Scanned PDFs (image-only) need OCR and aren't supported yet."}
         </p>
-        <button className="btn primary" disabled={busy} type="submit">
+        <button className="btn primary" disabled={busy || (mode === "file" && !file)} type="submit">
           {busy ? "Analyzing…" : "Run redline review"}
         </button>
       </form>

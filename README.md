@@ -52,7 +52,8 @@ Request (the spine)
   is a 403, not a silent pass. Requesters see only their own requests; every
   mutation attributes to the authenticated user in the audit chain. Admin UI at
   `/admin` for role management (last-admin guard, chain-sealed).
-- **Inbound redline engine** (`/inbound`): paste a counterparty's NDA → it's
+- **Inbound redline engine** (`/inbound`): paste a counterparty's NDA **or
+  upload their .docx / .pdf** (text extracted via python-docx / pypdf) → it's
   segmented into clauses, classified against the playbook, and checked by a
   **hybrid** engine — *deterministic* validators for the things LLMs get wrong
   (liability cap / term in months, governing-law jurisdiction, missing mandatory
@@ -120,10 +121,9 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 ## Not yet built (next slices)
 
-1. **.docx / PDF ingestion** — inbound review takes pasted text today; add a
-   Word/PDF parser feeding the same `segment()` → `Clause[]` path.
+1. **Multi-channel intake** — email webhook + chatbot into the same pipeline.
 2. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
-3. **Multi-channel intake** — email webhook + chatbot into the same pipeline.
-4. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
+3. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
+4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 5. **Alembic migrations** (skeleton uses `create_all` + startup ALTERs) and the
    playbook-learning flywheel (learn positions from lawyer overrides).

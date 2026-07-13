@@ -172,6 +172,15 @@ export const api = {
   createInbound: (body: Record<string, unknown>) =>
     fetch(`${BASE}/api/requests/inbound`, JSON_POST(body)).then(j<RequestDetail>),
 
+  createInboundUpload: (fields: { counterparty_name: string; nda_type: string; purpose: string }, file: File) => {
+    const fd = new FormData();
+    fd.append("counterparty_name", fields.counterparty_name);
+    fd.append("nda_type", fields.nda_type);
+    fd.append("purpose", fields.purpose);
+    fd.append("file", file);
+    return fetch(`${BASE}/api/requests/inbound/upload`, { method: "POST", headers: H(), body: fd }).then(j<RequestDetail>);
+  },
+
   decideChange: (changeId: string, action: "approve" | "reject" | "edit", edited_after_text?: string) =>
     fetch(`${BASE}/api/changes/${changeId}/decide`, JSON_POST({ action, edited_after_text })).then(j<RequestDetail>),
 

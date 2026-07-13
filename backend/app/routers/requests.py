@@ -151,8 +151,11 @@ def _open_steps(db: Session, request_id: str) -> int:
 
 
 def _summary(db: Session, r: Request) -> dict:
+    from ..models import Playbook
+
     cp = db.get(Counterparty, r.counterparty_id)
     person = db.get(Person, r.requester_id)
+    pb = db.get(Playbook, r.playbook_id) if r.playbook_id else None
     return {
         "id": r.id,
         "ref": r.ref,
@@ -168,6 +171,9 @@ def _summary(db: Session, r: Request) -> dict:
         "term_months": r.term_months,
         "created_at": r.created_at,
         "open_steps": _open_steps(db, r.id),
+        "playbook_id": r.playbook_id,
+        "playbook_name": pb.name if pb else None,
+        "playbook_version": pb.version if pb else None,
         "esign_provider": r.esign_provider,
         "esign_status": r.esign_status,
         "esign_envelope_id": r.esign_envelope_id,
@@ -285,16 +291,21 @@ def create_request(
     db: Session = Depends(get_db),
 ):
     from ..services import intake
+    from ..services.playbooks import PlaybookResolutionError
 
     # the requester is the authenticated user (attribution is real, not free-text)
     requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
-    r = intake.create_outbound(
-        db, org=user.org_id, requester=requester,
-        actor=intake.Actor(user.id, ActorType.USER, user.name),
-        counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
-        purpose=payload.purpose, jurisdiction=payload.jurisdiction,
-        term_months=payload.term_months, channel=payload.channel,
-    )
+    try:
+        r = intake.create_outbound(
+            db, org=user.org_id, requester=requester,
+            actor=intake.Actor(user.id, ActorType.USER, user.name),
+            counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
+            purpose=payload.purpose, jurisdiction=payload.jurisdiction,
+            term_months=payload.term_months, channel=payload.channel,
+            playbook_id=payload.playbook_id,
+        )
+    except PlaybookResolutionError as e:
+        raise HTTPException(400, str(e))
     return _detail(db, r)
 
 

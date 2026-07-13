@@ -1,12 +1,14 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { api, PURPOSES } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { api, PURPOSES, type PlaybookSummary } from "../../lib/api";
 
 export default function NewRequest() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [books, setBooks] = useState<PlaybookSummary[]>([]);
+  const [playbookId, setPlaybookId] = useState("");   // "" = org default
   const [form, setForm] = useState({
     requester_name: "Sam Carter",
     requester_email: "sam.carter@northwind.example",
@@ -17,6 +19,10 @@ export default function NewRequest() {
     term_months: 24,
   });
 
+  // offer a playbook picker only to users who can see the library (legal staff);
+  // requesters get the org default transparently
+  useEffect(() => { api.listPlaybooks().then(setBooks).catch(() => setBooks([])); }, []);
+
   const set = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
   async function submit(e: React.FormEvent) {
@@ -24,7 +30,10 @@ export default function NewRequest() {
     setSubmitting(true);
     setError(null);
     try {
-      const r = await api.createRequest({ ...form, term_months: Number(form.term_months) });
+      const r = await api.createRequest({
+        ...form, term_months: Number(form.term_months),
+        ...(playbookId ? { playbook_id: playbookId } : {}),
+      });
       router.push(`/r/${r.id}`);
     } catch (err) {
       setError(String(err));
@@ -92,6 +101,19 @@ export default function NewRequest() {
             />
           </div>
         </div>
+
+        {books.length > 1 && (
+          <div className="field">
+            <label>Playbook</label>
+            <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)}>
+              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : ""}</option>
+              {books.map((b) => (
+                <option key={b.id} value={b.id}>{b.name} · v{b.version}{b.active ? " · default" : ""}</option>
+              ))}
+            </select>
+            <span className="hint">Which set of company positions to draft from. Leave as default unless this deal needs a specific standard.</span>
+          </div>
+        )}
 
         {error && <div className="notice warn" style={{ marginBottom: 14 }}>{error}</div>}
 

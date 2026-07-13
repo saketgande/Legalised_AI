@@ -58,9 +58,20 @@ export type RequestSummary = {
   term_months: number;
   created_at: string;
   open_steps: number;
+  playbook_id: string | null;
+  playbook_name: string | null;
+  playbook_version: number | null;
   esign_provider: string | null;
   esign_status: string | null;
   esign_envelope_id: string | null;
+};
+
+export type PlaybookSummary = {
+  id: string;
+  name: string;
+  version: number;
+  active: boolean;
+  rule_count: number;
 };
 
 export type PlaybookRule = {
@@ -196,11 +207,12 @@ export const api = {
   createInbound: (body: Record<string, unknown>) =>
     fetch(`${BASE}/api/requests/inbound`, JSON_POST(body)).then(j<RequestDetail>),
 
-  createInboundUpload: (fields: { counterparty_name: string; nda_type: string; purpose: string }, file: File) => {
+  createInboundUpload: (fields: { counterparty_name: string; nda_type: string; purpose: string; playbook_id?: string }, file: File) => {
     const fd = new FormData();
     fd.append("counterparty_name", fields.counterparty_name);
     fd.append("nda_type", fields.nda_type);
     fd.append("purpose", fields.purpose);
+    if (fields.playbook_id) fd.append("playbook_id", fields.playbook_id);
     fd.append("file", file);
     return fetch(`${BASE}/api/requests/inbound/upload`, { method: "POST", headers: H(), body: fd }).then(j<RequestDetail>);
   },
@@ -244,13 +256,32 @@ export const api = {
       j<{ created: boolean; classified: string; request?: RequestSummary; reply?: string }>,
     ),
 
+  // playbook library (read-only; used by the request forms' picker)
+  listPlaybooks: () => fetch(`${BASE}/api/playbooks`, { cache: "no-store", headers: H() })
+    .then(j<{ playbooks: PlaybookSummary[] }>).then((r) => r.playbooks),
+
   // playbook admin
-  getPlaybook: () => fetch(`${BASE}/api/admin/playbook`, { cache: "no-store", headers: H() }).then(
-    j<{ playbook: { id: string; name: string; version: number }; rules: PlaybookRule[] }>),
-  createRule: (body: Record<string, unknown>) => fetch(`${BASE}/api/admin/playbook/rules`, JSON_POST(body)).then(j<PlaybookRule>),
-  updateRule: (id: string, body: Record<string, unknown>) =>
-    fetch(`${BASE}/api/admin/playbook/rules/${id}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<PlaybookRule>),
-  deleteRule: (id: string) => fetch(`${BASE}/api/admin/playbook/rules/${id}`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean; deleted: string }>),
+  getPlaybook: (playbookId?: string) => {
+    const q = playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : "";
+    return fetch(`${BASE}/api/admin/playbook${q}`, { cache: "no-store", headers: H() }).then(
+      j<{ playbook: { id: string; name: string; version: number; active: boolean }; rules: PlaybookRule[] }>);
+  },
+  listPlaybooksAdmin: () => fetch(`${BASE}/api/admin/playbook/catalog`, { cache: "no-store", headers: H() })
+    .then(j<{ playbooks: PlaybookSummary[] }>).then((r) => r.playbooks),
+  createPlaybook: (name: string) => fetch(`${BASE}/api/admin/playbook/catalog`, JSON_POST({ name })).then(j<PlaybookSummary>),
+  activatePlaybook: (id: string) => fetch(`${BASE}/api/admin/playbook/catalog/${id}/activate`, { method: "POST", headers: H() }).then(j<PlaybookSummary>),
+  createRule: (body: Record<string, unknown>, playbookId?: string) => {
+    const q = playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : "";
+    return fetch(`${BASE}/api/admin/playbook/rules${q}`, JSON_POST(body)).then(j<PlaybookRule>);
+  },
+  updateRule: (id: string, body: Record<string, unknown>, playbookId?: string) => {
+    const q = playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : "";
+    return fetch(`${BASE}/api/admin/playbook/rules/${id}${q}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<PlaybookRule>);
+  },
+  deleteRule: (id: string, playbookId?: string) => {
+    const q = playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : "";
+    return fetch(`${BASE}/api/admin/playbook/rules/${id}${q}`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean; deleted: string }>);
+  },
   learnFromChange: (changeId: string) => fetch(`${BASE}/api/admin/playbook/learn-from-change/${changeId}`, { method: "POST", headers: H() }).then(j<PlaybookRule>),
 
   // admin

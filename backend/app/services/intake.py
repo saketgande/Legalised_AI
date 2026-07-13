@@ -79,14 +79,17 @@ def get_or_create_counterparty(db: Session, org: str, name: str) -> Counterparty
 def create_outbound(
     db: Session, *, org: str, requester: Person, actor: Actor, counterparty_name: str,
     nda_type: str = "MUTUAL", purpose: str = "sales_evaluation", jurisdiction: str = "US",
-    term_months: int = 24, channel: str = "FORM",
+    term_months: int = 24, channel: str = "FORM", playbook_id: str | None = None,
 ) -> Request:
+    from .playbooks import resolve_playbook
+
     counterparty = get_or_create_counterparty(db, org, counterparty_name)
+    playbook = resolve_playbook(db, org, playbook_id)  # validates + picks default
     r = Request(
         ref=next_ref(db), org_id=org, type="NDA", direction=Direction.OUTBOUND,
         nda_type=NdaType(nda_type), state=RequestState.NEW, requester_id=requester.id,
         counterparty_id=counterparty.id, purpose=purpose, jurisdiction=jurisdiction,
-        term_months=term_months, channel=channel,
+        term_months=term_months, channel=channel, playbook_id=playbook.id,
     )
     db.add(r)
     db.flush()
@@ -142,14 +145,17 @@ def create_outbound(
 def create_inbound(
     db: Session, *, org: str, requester: Person, actor: Actor, counterparty_name: str,
     body_text: str, nda_type: str = "MUTUAL", purpose: str = "vendor_evaluation",
-    channel: str = "EMAIL", source: str = "paste",
+    channel: str = "EMAIL", source: str = "paste", playbook_id: str | None = None,
 ) -> Request:
+    from .playbooks import resolve_playbook
+
     counterparty = get_or_create_counterparty(db, org, counterparty_name)
+    playbook = resolve_playbook(db, org, playbook_id)  # validates + picks default
     r = Request(
         ref=next_ref(db), org_id=org, type="NDA", direction=Direction.INBOUND,
         nda_type=NdaType(nda_type), our_role=OurRole.RECIPIENT, state=RequestState.NEW,
         requester_id=requester.id, counterparty_id=counterparty.id, purpose=purpose,
-        jurisdiction="US", term_months=24, channel=channel,
+        jurisdiction="US", term_months=24, channel=channel, playbook_id=playbook.id,
     )
     db.add(r)
     db.flush()

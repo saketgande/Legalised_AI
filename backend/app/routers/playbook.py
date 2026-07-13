@@ -16,10 +16,33 @@ from ..models import ActorType, Playbook, PlaybookRule, ProposedChange, Request,
 from ..permissions import RUNG_RANK, Permission
 from ..security import require
 from ..services.audit import record_audit
+from ..services.playbooks import PlaybookResolutionError, resolve_playbook
 
 router = APIRouter(prefix="/api/admin/playbook", tags=["playbook-admin"])
 
+# a second, read-only surface the request forms use to offer a playbook picker —
+# management stays under /api/admin/playbook (PLAYBOOK_MANAGE); this is a plain read
+list_router = APIRouter(prefix="/api", tags=["playbook"])
+
 _VALID_RUNGS = set(RUNG_RANK.keys())
+
+
+class NewPlaybookIn(BaseModel):
+    name: str
+
+
+def _playbook_summary(db: Session, pb: Playbook) -> dict:
+    count = db.execute(
+        select(func.count(PlaybookRule.id)).where(PlaybookRule.playbook_id == pb.id)
+    ).scalar_one()
+    return {"id": pb.id, "name": pb.name, "version": pb.version, "active": pb.active, "rule_count": count}
+
+
+def _list_playbooks(db: Session, org_id: str) -> list[dict]:
+    rows = db.execute(
+        select(Playbook).where(Playbook.org_id == org_id).order_by(Playbook.created_at.asc())
+    ).scalars().all()
+    return [_playbook_summary(db, pb) for pb in rows]
 
 
 class RuleIn(BaseModel):
@@ -44,13 +67,13 @@ def _change_org(db: Session, change: ProposedChange) -> str | None:
     return req.org_id if req else None
 
 
-def _active_playbook(db: Session, org_id: str) -> Playbook:
-    pb = db.execute(
-        select(Playbook).where(Playbook.org_id == org_id, Playbook.active == True)  # noqa: E712
-    ).scalars().first()
-    if pb is None:
-        raise HTTPException(404, "no active playbook for organisation")
-    return pb
+def _target_playbook(db: Session, org_id: str, playbook_id: str | None = None) -> Playbook:
+    """The playbook a management action targets: the one named (org-checked), else
+    the org's default. Translates the resolver's error to a 404."""
+    try:
+        return resolve_playbook(db, org_id, playbook_id)
+    except PlaybookResolutionError as e:
+        raise HTTPException(404, str(e))
 
 
 def _rule_out(r: PlaybookRule) -> dict:
@@ -75,19 +98,81 @@ def _bump_version(db: Session, pb: Playbook) -> None:
     pb.version = (pb.version or 1) + 1
 
 
+@list_router.get("/playbooks")
+def list_playbooks_public(
+    user: User = Depends(require(Permission.PLAYBOOK_READ)), db: Session = Depends(get_db),
+):
+    """Read-only catalog for the request forms' playbook picker."""
+    return {"playbooks": _list_playbooks(db, user.org_id)}
+
+
+@router.get("/catalog")
+def list_playbooks(user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
+    return {"playbooks": _list_playbooks(db, user.org_id)}
+
+
+@router.post("/catalog")
+def create_playbook(payload: NewPlaybookIn, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(400, "name is required")
+    # new playbooks start inactive so they don't disturb the current default
+    pb = Playbook(org_id=user.org_id, name=name, version=1, active=False)
+    db.add(pb)
+    db.flush()
+    record_audit(
+        db, org_id=user.org_id, action="playbook.created", resource_type="Playbook", resource_id=pb.id,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
+        metadata={"name": pb.name},
+    )
+    db.commit()
+    return _playbook_summary(db, pb)
+
+
+@router.post("/catalog/{playbook_id}/activate")
+def activate_playbook(playbook_id: str, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
+    """Make this the org's default playbook (exactly one default at a time)."""
+    pb = db.get(Playbook, playbook_id)
+    if pb is None or pb.org_id != user.org_id:
+        raise HTTPException(404, "playbook not found")
+    others = db.execute(
+        select(Playbook).where(Playbook.org_id == user.org_id, Playbook.active == True)  # noqa: E712
+    ).scalars().all()
+    for o in others:
+        o.active = False
+    pb.active = True
+    db.flush()
+    record_audit(
+        db, org_id=user.org_id, action="playbook.activated", resource_type="Playbook", resource_id=pb.id,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
+        metadata={"name": pb.name, "deactivated": [o.id for o in others if o.id != pb.id]},
+    )
+    db.commit()
+    return _playbook_summary(db, pb)
+
+
 @router.get("")
-def get_playbook(user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
-    pb = _active_playbook(db, user.org_id)
+def get_playbook(
+    playbook_id: str | None = None,
+    user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db),
+):
+    pb = _target_playbook(db, user.org_id, playbook_id)
     rules = db.execute(
         select(PlaybookRule).where(PlaybookRule.playbook_id == pb.id).order_by(PlaybookRule.ordinal.asc())
     ).scalars().all()
-    return {"playbook": {"id": pb.id, "name": pb.name, "version": pb.version}, "rules": [_rule_out(r) for r in rules]}
+    return {
+        "playbook": {"id": pb.id, "name": pb.name, "version": pb.version, "active": pb.active},
+        "rules": [_rule_out(r) for r in rules],
+    }
 
 
 @router.post("/rules")
-def create_rule(payload: RuleIn, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
+def create_rule(
+    payload: RuleIn, playbook_id: str | None = None,
+    user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db),
+):
     _validate(payload)
-    pb = _active_playbook(db, user.org_id)
+    pb = _target_playbook(db, user.org_id, playbook_id)
     dupe = db.execute(
         select(PlaybookRule).where(PlaybookRule.playbook_id == pb.id, PlaybookRule.rule_key == payload.rule_key.strip())
     ).scalars().first()
@@ -113,9 +198,12 @@ def create_rule(payload: RuleIn, user: User = Depends(require(Permission.PLAYBOO
 
 
 @router.put("/rules/{rule_id}")
-def update_rule(rule_id: str, payload: RuleIn, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
+def update_rule(
+    rule_id: str, payload: RuleIn, playbook_id: str | None = None,
+    user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db),
+):
     _validate(payload)
-    pb = _active_playbook(db, user.org_id)
+    pb = _target_playbook(db, user.org_id, playbook_id)
     r = db.get(PlaybookRule, rule_id)
     if r is None or r.playbook_id != pb.id:
         raise HTTPException(404, "rule not found")
@@ -169,7 +257,11 @@ def learn_from_change(change_id: str, user: User = Depends(require(Permission.PL
     if not change.after_text.strip():
         raise HTTPException(400, "nothing to learn — the change has no proposed language")
 
-    pb = _active_playbook(db, user.org_id)
+    # adopt the edit into the playbook this change's request was reviewed against
+    # (not blindly the org default), so the flywheel improves the right playbook
+    run = db.get(ReviewRun, change.run_id)
+    req = db.get(Request, run.request_id) if run else None
+    pb = _target_playbook(db, user.org_id, req.playbook_id if req else None)
     r = db.execute(
         select(PlaybookRule).where(PlaybookRule.playbook_id == pb.id, PlaybookRule.rule_key == change.rule_key)
     ).scalars().first()
@@ -189,8 +281,11 @@ def learn_from_change(change_id: str, user: User = Depends(require(Permission.PL
 
 
 @router.delete("/rules/{rule_id}")
-def delete_rule(rule_id: str, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
-    pb = _active_playbook(db, user.org_id)
+def delete_rule(
+    rule_id: str, playbook_id: str | None = None,
+    user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db),
+):
+    pb = _target_playbook(db, user.org_id, playbook_id)
     r = db.get(PlaybookRule, rule_id)
     if r is None or r.playbook_id != pb.id:
         raise HTTPException(404, "rule not found")

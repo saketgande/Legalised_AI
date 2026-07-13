@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { api } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { api, type PlaybookSummary } from "../../lib/api";
 
 const SAMPLE = `1. Confidential Information
 "Confidential Information" means any information disclosed by Globex LLC to the Receiving Party in connection with the proposed engagement.
@@ -24,15 +24,22 @@ export default function InboundReview() {
   const [counterparty, setCounterparty] = useState("Globex LLC");
   const [body, setBody] = useState(SAMPLE);
   const [file, setFile] = useState<File | null>(null);
+  const [books, setBooks] = useState<PlaybookSummary[]>([]);
+  const [playbookId, setPlaybookId] = useState("");   // "" = org default
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => { api.listPlaybooks().then(setBooks).catch(() => setBooks([])); }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setErr(null);
     try {
-      const fields = { counterparty_name: counterparty, nda_type: "ONE_WAY", purpose: "vendor_evaluation" };
+      const fields = {
+        counterparty_name: counterparty, nda_type: "ONE_WAY", purpose: "vendor_evaluation",
+        ...(playbookId ? { playbook_id: playbookId } : {}),
+      };
       const r = mode === "file" && file
         ? await api.createInboundUpload(fields, file)
         : await api.createInbound({ ...fields, body_text: body });
@@ -63,6 +70,19 @@ export default function InboundReview() {
           <label>Counterparty</label>
           <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} required />
         </div>
+
+        {books.length > 1 && (
+          <div className="field">
+            <label>Review against playbook</label>
+            <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)}>
+              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : ""}</option>
+              {books.map((b) => (
+                <option key={b.id} value={b.id}>{b.name} · v{b.version}{b.active ? " · default" : ""}</option>
+              ))}
+            </select>
+            <span className="hint">The counterparty&rsquo;s paper is redlined against these positions.</span>
+          </div>
+        )}
 
         {mode === "paste" ? (
           <div className="field">

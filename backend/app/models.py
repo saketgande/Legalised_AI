@@ -188,6 +188,11 @@ class Request(Base):
     purpose: Mapped[str] = mapped_column(String, nullable=False)
     jurisdiction: Mapped[str] = mapped_column(String, default="US")
     term_months: Mapped[int] = mapped_column(Integer, default=24)
+
+    # which playbook this request was drafted / reviewed against (null = org default
+    # at the time; resolved and stamped by the engine so audits can answer "which
+    # standard did we apply")
+    playbook_id: Mapped[str | None] = mapped_column(ForeignKey("playbook.id"), nullable=True)
     channel: Mapped[str] = mapped_column(String, default="FORM")  # FORM | SLACK | EMAIL | CHAT
     triage_reasons: Mapped[list] = mapped_column(JSON, default=list)
 

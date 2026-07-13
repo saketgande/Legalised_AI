@@ -164,6 +164,11 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </span>
         {inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
         <span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span>
+        {r.playbook_name && (
+          <span className="pill accent" title="The playbook this request was reviewed against">
+            📕 {r.playbook_name} v{r.playbook_version}
+          </span>
+        )}
       </div>
 
       {inbound ? (

@@ -82,6 +82,64 @@ def _backfill_demo_auth() -> None:
         db.close()
 
 
+def _ensure_demo_playbooks() -> None:
+    """Give the demo org a SECOND playbook so the multi-playbook switcher and
+    per-request selection are demonstrable without a reseed. Idempotent: guarded
+    by name, and never touches the default (the new one ships inactive)."""
+    from sqlalchemy import select
+
+    from .models import Organization, Playbook, PlaybookRule
+
+    NAME = "Vendor / Procurement NDA (strict)"
+
+    def _rule(pb_id, key, ordinal, ctype, heading, body, rung="none", mandatory=True):
+        return PlaybookRule(
+            playbook_id=pb_id, rule_key=key, clause_type=ctype, heading=heading, ordinal=ordinal,
+            applies_when={}, preferred_position="", preferred_body=body, structured_params={},
+            mandatory=mandatory, deviation_rung=rung, rationale="",
+        )
+
+    db = SessionLocal()
+    try:
+        for org in db.execute(select(Organization)).scalars().all():
+            exists = db.execute(
+                select(Playbook).where(Playbook.org_id == org.id, Playbook.name == NAME)
+            ).scalars().first()
+            if exists:
+                continue
+            pb = Playbook(org_id=org.id, name=NAME, version=1, active=False)
+            db.add(pb)
+            db.flush()
+            db.add_all([
+                _rule(pb.id, "DEF-01", 1, "confidential_information_definition",
+                      "Definition of Confidential Information",
+                      "“Confidential Information” means all information disclosed by the Disclosing "
+                      "Party, whether or not marked, in connection with {{matter.purpose}}, including "
+                      "the existence and terms of this Agreement."),
+                _rule(pb.id, "PUR-01", 2, "purpose", "Purpose",
+                      "The Receiving Party shall use the Confidential Information solely to perform "
+                      "or evaluate services for the Disclosing Party and for no other purpose."),
+                _rule(pb.id, "OBL-01", 3, "confidentiality_obligations", "Obligations of Confidentiality",
+                      "The Receiving Party shall protect the Confidential Information using no less than "
+                      "the same degree of care it uses for its own most sensitive information, and in no "
+                      "event less than a high degree of care."),
+                _rule(pb.id, "TRM-01", 4, "term", "Term and Survival",
+                      "This Agreement remains in effect for twelve (12) months; confidentiality "
+                      "obligations survive for five (5) years after disclosure.", rung="vp_legal"),
+                _rule(pb.id, "LOL-01", 5, "limitation_of_liability", "Limitation of Liability",
+                      "The Receiving Party accepts uncapped liability for any breach of confidentiality; "
+                      "no limitation of liability applies to Confidential Information.", rung="gc"),
+                _rule(pb.id, "GOV-01", 6, "governing_law", "Governing Law",
+                      "This Agreement is governed by the laws of the State of Delaware.", rung="vp_legal"),
+                _rule(pb.id, "RET-01", 7, "return_destruction", "Return or Destruction",
+                      "Upon request the Receiving Party shall within ten (10) days return or destroy all "
+                      "Confidential Information and certify destruction in writing."),
+            ])
+        db.commit()
+    finally:
+        db.close()
+
+
 @app.on_event("startup")
 def _startup() -> None:
     assert_production_secrets()  # fail loud on insecure production config
@@ -91,6 +149,7 @@ def _startup() -> None:
 
         seed()
     _backfill_demo_auth()
+    _ensure_demo_playbooks()
 
 
 @app.exception_handler(Exception)
@@ -122,4 +181,5 @@ app.include_router(inbound.router)
 app.include_router(intake.router)
 app.include_router(esign.router)
 app.include_router(playbook.router)
+app.include_router(playbook.list_router)
 app.include_router(meta.router)

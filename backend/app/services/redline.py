@@ -212,7 +212,15 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
         select(Clause).where(Clause.document_version_id == version.id).order_by(Clause.ordinal.asc())
     ).scalars().all()
 
-    rules = db.execute(select(PlaybookRule).order_by(PlaybookRule.ordinal.asc())).scalars().all()
+    # resolve the request's playbook (specific one if named, else org default) and
+    # load ONLY its rules, filtered to the ones that apply to this NDA type. Before
+    # this, the redline loaded every rule in the database — all playbooks, all orgs —
+    # and collided them by clause_type. Stamp the resolved playbook onto the request.
+    from .playbooks import load_rules, resolve_playbook, rule_applies
+
+    playbook = resolve_playbook(db, request.org_id, request.playbook_id)
+    request.playbook_id = playbook.id
+    rules = [r for r in load_rules(db, playbook.id) if rule_applies(r, request)]
     rule_by_type = {r.clause_type: r for r in rules}
 
     counterparty = db.get(Counterparty, request.counterparty_id)

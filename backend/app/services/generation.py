@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -23,10 +22,9 @@ from ..models import (
     DocumentVersion,
     NdaType,
     Person,
-    Playbook,
-    PlaybookRule,
     Request,
 )
+from .playbooks import load_rules, resolve_playbook, rule_applies
 
 
 def _fill(template: str, ctx: dict) -> str:
@@ -36,30 +34,17 @@ def _fill(template: str, ctx: dict) -> str:
     return out
 
 
-def _rule_applies(rule: PlaybookRule, request: Request) -> bool:
-    applies = rule.applies_when or {}
-    want = applies.get("ndaType")
-    if want and want != request.nda_type.value:
-        return False
-    return True
-
-
 def generate_outbound_nda(db: Session, request: Request) -> Document:
     org_id = request.org_id
     counterparty = db.get(Counterparty, request.counterparty_id)
     requester = db.get(Person, request.requester_id)
 
-    playbook = db.execute(
-        select(Playbook).where(Playbook.org_id == org_id, Playbook.active == True)  # noqa: E712
-    ).scalars().first()
-    if playbook is None:
-        raise ValueError("no active playbook for organisation")
-
-    rules = db.execute(
-        select(PlaybookRule)
-        .where(PlaybookRule.playbook_id == playbook.id)
-        .order_by(PlaybookRule.ordinal.asc())
-    ).scalars().all()
+    # resolve the request's playbook (specific one if named, else org default),
+    # then stamp it onto the request so the audit trail records which standard
+    # produced this draft
+    playbook = resolve_playbook(db, org_id, request.playbook_id)
+    request.playbook_id = playbook.id
+    rules = load_rules(db, playbook.id)
 
     ctx = {
         "counterparty.name": counterparty.name,
@@ -96,7 +81,7 @@ def generate_outbound_nda(db: Session, request: Request) -> Document:
     ]
 
     section_no = 0
-    applicable = [r for r in rules if _rule_applies(r, request)]
+    applicable = [r for r in rules if rule_applies(r, request)]
     for rule in applicable:
         section_no += 1
         body = _fill(rule.preferred_body, ctx)

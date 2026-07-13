@@ -17,6 +17,7 @@ class CreateRequestIn(BaseModel):
     jurisdiction: str = "US"
     term_months: int = 24
     channel: str = "FORM"
+    playbook_id: str | None = None    # null = the org's default playbook
 
 
 class ApproveStepIn(BaseModel):
@@ -31,6 +32,7 @@ class CreateInboundIn(BaseModel):
     requester_name: str = "Sam Carter"
     requester_email: str = "sam.carter@northwind.example"
     body_text: str
+    playbook_id: str | None = None    # null = the org's default playbook
 
 
 class DecideChangeIn(BaseModel):
@@ -102,6 +104,9 @@ class RequestSummaryOut(BaseModel):
     term_months: int
     created_at: datetime
     open_steps: int
+    playbook_id: str | None = None
+    playbook_name: str | None = None
+    playbook_version: int | None = None
     esign_provider: str | None = None
     esign_status: str | None = None
     esign_envelope_id: str | None = None

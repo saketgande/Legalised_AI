@@ -31,6 +31,7 @@ export function TopBar() {
           {has("request:create") && <Link href="/chat" className={is("/chat")}>Ask</Link>}
           {has("request:read_all") && <Link href="/inbound" className={is("/inbound")}>Review their paper</Link>}
           {has("request:read_all") && <Link href="/email-sim" className={is("/email-sim")}>Email intake</Link>}
+          {has("playbook:manage") && <Link href="/admin/playbook" className={is("/admin/playbook")}>Playbook</Link>}
           {has("admin:manage_users") && <Link href="/admin" className={is("/admin")}>Admin</Link>}
         </nav>
       )}

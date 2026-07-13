@@ -35,7 +35,7 @@ function Md({ md, redline = false }: { md: string; redline?: boolean }) {
 }
 
 /* ---------- inbound: a single proposed-change card ---------- */
-function ChangeCard({ c, onDecide, busy, canApprove }: { c: ProposedChange; onDecide: (a: "approve" | "reject" | "edit", t?: string) => void; busy: boolean; canApprove: boolean }) {
+function ChangeCard({ c, onDecide, busy, canApprove, canLearn, onLearn }: { c: ProposedChange; onDecide: (a: "approve" | "reject" | "edit", t?: string) => void; busy: boolean; canApprove: boolean; canLearn: boolean; onLearn: () => void }) {
   const decided = c.decision !== "PENDING";
   return (
     <div className={`change-card ${decided ? "decided" : ""}`}>
@@ -79,9 +79,16 @@ function ChangeCard({ c, onDecide, busy, canApprove }: { c: ProposedChange; onDe
       </div>
 
       {decided ? (
-        <div className={`cc-decided ${c.decision}`}>
-          {c.decision === "REJECTED" ? "✕ Rejected — their language kept" : "✓ Accepted into counter-proposal"}
-        </div>
+        <>
+          <div className={`cc-decided ${c.decision}`}>
+            {c.decision === "REJECTED" ? "✕ Rejected — their language kept" : "✓ Accepted into counter-proposal"}
+          </div>
+          {c.decision === "APPROVED_WITH_EDIT" && c.rule_key && canLearn && (
+            <button className="btn ghost" style={{ marginTop: 8, fontSize: 12, padding: "5px 10px" }} disabled={busy} onClick={onLearn}>
+              📖 Teach the playbook · adopt this as {c.rule_key}&rsquo;s language →
+            </button>
+          )}
+        </>
       ) : (
         <>
           <div className="cc-actions">
@@ -130,6 +137,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     try { setR(await fn()); } catch (e) { setErr(String(e)); } finally { setBusy(false); }
   }
 
+  async function learn(changeId: string, ruleKey: string | null) {
+    setBusy(true); setErr(null);
+    try { await api.learnFromChange(changeId); setErr(null); alert(`Playbook updated — ${ruleKey} now uses your edited language.`); }
+    catch (e) { setErr(String(e).replace(/^Error:\s*/, "")); }
+    finally { setBusy(false); }
+  }
+
   if (err && !r) return <div className="container"><div className="notice warn">{err}</div></div>;
   if (!r) return <div className="container muted">Loading…</div>;
 
@@ -170,6 +184,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             <div>
               {r.review!.changes.map((c) => (
                 <ChangeCard key={c.id} c={c} busy={busy} canApprove={canClear(c.triggered_rung)}
+                  canLearn={user?.permissions.includes("playbook:manage") ?? false}
+                  onLearn={() => learn(c.id, c.rule_key)}
                   onDecide={(a, t) => act(() => api.decideChange(c.id, a, t))} />
               ))}
             </div>

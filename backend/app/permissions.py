@@ -20,6 +20,7 @@ class Permission(str, enum.Enum):
     REVIEW_DECIDE = "review:decide"        # approve/reject changes + ladder steps
     REQUEST_SEND = "request:send"
     PLAYBOOK_READ = "playbook:read"
+    PLAYBOOK_MANAGE = "playbook:manage"    # CRUD playbook rules (positions, rungs)
     ADMIN_MANAGE_USERS = "admin:manage_users"
 
 
@@ -50,14 +51,14 @@ _STAFF = {
 
 ROLE_PERMISSIONS: dict[str, set[Permission]] = {
     "admin": set(_ALL),
-    "gc": set(_STAFF),
+    "gc": _STAFF | {Permission.PLAYBOOK_MANAGE},        # GC owns the company's positions
     "vp_legal": set(_STAFF),
     "attorney": set(_STAFF),
     "paralegal": {  # triages + files, but does not approve deviations
         Permission.REQUEST_CREATE, Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ,
     },
     "legal_ops": {
-        Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ,
+        Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ, Permission.PLAYBOOK_MANAGE,
     },
     "requester": {Permission.REQUEST_CREATE, Permission.REQUEST_READ_OWN},
     "viewer": {Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ},

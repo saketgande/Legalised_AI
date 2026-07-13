@@ -45,6 +45,13 @@ Request (the spine)
   the first break. The header badge reads "✓ Audit chain intact".
 - **Two faces, one spine**: a requester package-tracker (`/r/[id]`) and a lawyer
   review cockpit (`/review/[id]`), plus a triage inbox (`/inbox`).
+- **Playbook admin + learning flywheel** (`/admin/playbook`) — GC/legal-ops manage
+  the clause rules the engine reasons against (preferred language, which deviations
+  need which sign-off rung, which clauses are mandatory) in-app instead of via the
+  seed. Every change bumps the playbook version and is chain-sealed. The **flywheel**:
+  when a lawyer edits a proposed redline, one click adopts that language as the
+  rule's new preferred position (`playbook.rule.learned`) — the playbook improves
+  every time it's corrected. Gated on the new `playbook:manage` permission.
 - **Word add-in** (`word-addin/` + `/word-addin`) — an Office.js task pane that
   reads the open document, runs it through the inbound redline engine, and inserts
   proposed edits as **tracked changes** (`changeTrackingMode = trackAll`). Meets
@@ -146,9 +153,7 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 1. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
    poller would call it per message (no code-path change).
-2. **Playbook admin UI + learning flywheel** — manage rules in-app; learn positions
-   from lawyer overrides.
-3. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
+2. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 5. **Playbook-learning flywheel** (learn positions from lawyer overrides) and a
    playbook admin UI.

@@ -63,6 +63,20 @@ export type RequestSummary = {
   esign_envelope_id: string | null;
 };
 
+export type PlaybookRule = {
+  id: string;
+  rule_key: string;
+  clause_type: string;
+  heading: string;
+  ordinal: number;
+  preferred_position: string;
+  preferred_body: string;
+  rationale: string;
+  mandatory: boolean;
+  deviation_rung: string;
+  nda_type: string | null;
+};
+
 export type Check = { kind: string; name: string; passed: boolean; detail: string; model?: string };
 
 export type ProposedChange = {
@@ -229,6 +243,15 @@ export const api = {
     fetch(`${BASE}/api/intake/email-webhook`, JSON_POST(payload)).then(
       j<{ created: boolean; classified: string; request?: RequestSummary; reply?: string }>,
     ),
+
+  // playbook admin
+  getPlaybook: () => fetch(`${BASE}/api/admin/playbook`, { cache: "no-store", headers: H() }).then(
+    j<{ playbook: { id: string; name: string; version: number }; rules: PlaybookRule[] }>),
+  createRule: (body: Record<string, unknown>) => fetch(`${BASE}/api/admin/playbook/rules`, JSON_POST(body)).then(j<PlaybookRule>),
+  updateRule: (id: string, body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/admin/playbook/rules/${id}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<PlaybookRule>),
+  deleteRule: (id: string) => fetch(`${BASE}/api/admin/playbook/rules/${id}`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean; deleted: string }>),
+  learnFromChange: (changeId: string) => fetch(`${BASE}/api/admin/playbook/learn-from-change/${changeId}`, { method: "POST", headers: H() }).then(j<PlaybookRule>),
 
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),

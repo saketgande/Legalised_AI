@@ -36,8 +36,16 @@ class Settings(BaseSettings):
     auth_demo_password: str = "demo1234"
 
     # Optional shared secret for the inbound email webhook (X-Intake-Secret header).
-    # Empty -> webhook is open (dev). Set in production.
+    # Empty -> webhook is open (dev). Set in production. Also authorises the
+    # external-scheduler poll endpoint (POST /api/intake/email/poll-cron).
     intake_webhook_secret: str = ""
+
+    # Email-inbox polling. A background loop polls every configured, active mailbox
+    # on this cadence and funnels each new message through the intake pipeline.
+    # Disable the in-process loop and drive polls from an external cron instead by
+    # setting EMAIL_POLLING_ENABLED=false (Render free tier sleeps idle web services).
+    email_polling_enabled: bool = True
+    email_poll_interval_seconds: int = 120
 
     # E-signature (DocuSign). When all three are set, the DocuSign client is used;
     # otherwise the stub client keeps the demo working. HMAC key secures the webhook.

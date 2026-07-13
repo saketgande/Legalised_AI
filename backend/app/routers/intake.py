@@ -47,47 +47,37 @@ def email_webhook(
     if settings.intake_webhook_secret and x_intake_secret != settings.intake_webhook_secret:
         raise HTTPException(401, "bad or missing X-Intake-Secret")
 
+    from ..services.email_intake import ingest_email
+
     org = intake.org_id(db)
-    requester = intake.get_or_create_person(
-        db, org, payload.from_name or payload.from_email, payload.from_email
-    )
-    actor = intake.Actor(None, ActorType.SYSTEM, "Email Intake")
-
-    ai = get_ai_client()
-    parsed = ai.parse_intake(f"{payload.subject}\n{payload.body}")
-
-    # decide inbound (they sent a contract) vs outbound (they're asking for one)
-    attachment_text = None
+    attachments: list[tuple[str, bytes]] = []
     if payload.attachment is not None:
-        content = base64.b64decode(payload.attachment.content_b64)
-        attachment_text = extract_text(payload.attachment.filename, content)
+        attachments.append((payload.attachment.filename, base64.b64decode(payload.attachment.content_b64)))
 
-    is_inbound = (
-        attachment_text is not None
-        or parsed.intent == "inbound"
-        or intake.looks_like_contract(payload.body)
+    res = ingest_email(
+        db, org=org, from_email=payload.from_email, from_name=payload.from_name,
+        subject=payload.subject, body=payload.body, attachments=attachments, source="email",
     )
+    if res.created and res.request_id is not None:
+        from ..models import Request
+        r = db.get(Request, res.request_id)
+        return {"created": True, "classified": res.classified, "request": R._summary(db, r)}
+    return {"created": False, "classified": res.classified, "reply": res.reply}
 
-    if is_inbound:
-        body_text = attachment_text or payload.body
-        counterparty = parsed.counterparty or (payload.from_name or payload.from_email.split("@")[0].title())
-        r = intake.create_inbound(
-            db, org=org, requester=requester, actor=actor,
-            counterparty_name=counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
-            body_text=body_text, channel="EMAIL", source="email" + ("-attachment" if attachment_text else ""),
-        )
-        return {"created": True, "classified": "inbound", "request": R._summary(db, r)}
 
-    if not parsed.counterparty:
-        return {"created": False, "classified": "outbound",
-                "reply": "Couldn't identify the counterparty from the email — a human should triage this."}
+@router.post("/email/poll-cron")
+def email_poll_cron(
+    x_intake_secret: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+):
+    """Poll every active mailbox once. Authorised by the shared intake secret so an
+    external scheduler (Render Cron / GitHub Actions) can drive polling without a
+    user session — the in-process loop covers the always-on case."""
+    if not settings.intake_webhook_secret or x_intake_secret != settings.intake_webhook_secret:
+        raise HTTPException(401, "bad or missing X-Intake-Secret")
+    from ..services.email_poller import poll_all_active
 
-    r = intake.create_outbound(
-        db, org=org, requester=requester, actor=actor,
-        counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
-        jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="EMAIL",
-    )
-    return {"created": True, "classified": "outbound", "request": R._summary(db, r)}
+    return poll_all_active(db)
 
 
 # ————————————————————————— chatbot —————————————————————————

@@ -74,6 +74,35 @@ export type PlaybookSummary = {
   rule_count: number;
 };
 
+export type MailboxConfig = {
+  configured: boolean;
+  imap_host?: string;
+  imap_port?: number;
+  use_ssl?: boolean;
+  username?: string;
+  folder?: string;
+  active?: boolean;
+  default_playbook_id?: string | null;
+  last_polled_at?: string | null;
+  last_error?: string | null;
+  last_result?: { polled?: number; ingested?: number; at?: string };
+  ingested_count?: number;
+};
+
+export type MailboxTestResult = { ok: boolean; folder?: string; total?: number; unseen?: number; error?: string };
+
+export type PollResult = {
+  ok: boolean;
+  error?: string | null;
+  polled: number;
+  ingested: number;
+  messages: {
+    uid: string; from: string; subject: string; created: boolean;
+    classified: string | null; ref: string | null; request_id: string | null;
+    direction: string | null; reply: string | null; error: string | null;
+  }[];
+};
+
 export type PlaybookRule = {
   id: string;
   rule_key: string;
@@ -283,6 +312,14 @@ export const api = {
     return fetch(`${BASE}/api/admin/playbook/rules/${id}${q}`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean; deleted: string }>);
   },
   learnFromChange: (changeId: string) => fetch(`${BASE}/api/admin/playbook/learn-from-change/${changeId}`, { method: "POST", headers: H() }).then(j<PlaybookRule>),
+
+  // polled email inbox (intake channel)
+  getMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox`, { cache: "no-store", headers: H() }).then(j<MailboxConfig>),
+  saveMailbox: (body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/admin/intake/mailbox`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<MailboxConfig>),
+  testMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox/test`, { method: "POST", headers: H() }).then(j<MailboxTestResult>),
+  pollMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox/poll`, { method: "POST", headers: H() }).then(j<PollResult>),
+  deleteMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean }>),
 
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),

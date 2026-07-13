@@ -21,6 +21,7 @@ class Permission(str, enum.Enum):
     REQUEST_SEND = "request:send"
     PLAYBOOK_READ = "playbook:read"
     PLAYBOOK_MANAGE = "playbook:manage"    # CRUD playbook rules (positions, rungs)
+    INTAKE_MANAGE = "intake:manage"        # configure the polled email inbox + trigger polls
     ADMIN_MANAGE_USERS = "admin:manage_users"
 
 
@@ -51,7 +52,7 @@ _STAFF = {
 
 ROLE_PERMISSIONS: dict[str, set[Permission]] = {
     "admin": set(_ALL),
-    "gc": _STAFF | {Permission.PLAYBOOK_MANAGE},        # GC owns the company's positions
+    "gc": _STAFF | {Permission.PLAYBOOK_MANAGE, Permission.INTAKE_MANAGE},  # GC owns positions + intake
     "vp_legal": set(_STAFF),
     "attorney": set(_STAFF),
     "paralegal": {  # triages + files, but does not approve deviations
@@ -59,6 +60,7 @@ ROLE_PERMISSIONS: dict[str, set[Permission]] = {
     },
     "legal_ops": {
         Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ, Permission.PLAYBOOK_MANAGE,
+        Permission.INTAKE_MANAGE,
     },
     "requester": {Permission.REQUEST_CREATE, Permission.REQUEST_READ_OWN},
     "viewer": {Permission.REQUEST_READ_ALL, Permission.PLAYBOOK_READ},

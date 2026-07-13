@@ -329,3 +329,38 @@ class AuditEvent(Base):
     resource_id: Mapped[str] = mapped_column(String, nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+# ——————————————————— polled email inbox (intake channel) ———————————————————
+class EmailMailbox(Base):
+    """A legal inbox the platform polls over IMAP. Every new message is funnelled
+    through the same intake pipeline the webhook/form use: understood (classified),
+    then filed as an inbound review (their paper) or an outbound request (they're
+    asking us for one). One mailbox per organisation.
+
+    ``secret_enc`` is the IMAP password sealed with an AUTH_SECRET-derived keystream
+    (see services/secrets.py) — dev-grade obfuscation, not KMS. Use a dedicated
+    intake account with an app password; encrypt-at-rest before production.
+    """
+    __tablename__ = "email_mailbox"
+    __table_args__ = (UniqueConstraint("org_id", name="uq_email_mailbox_org"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
+
+    imap_host: Mapped[str] = mapped_column(String, nullable=False)   # e.g. imap.gmail.com
+    imap_port: Mapped[int] = mapped_column(Integer, default=993)
+    use_ssl: Mapped[bool] = mapped_column(Boolean, default=True)
+    username: Mapped[str] = mapped_column(String, nullable=False)    # the inbox login / address
+    secret_enc: Mapped[str] = mapped_column(Text, nullable=False)    # sealed password
+    folder: Mapped[str] = mapped_column(String, default="INBOX")
+
+    active: Mapped[bool] = mapped_column(Boolean, default=True)      # is the poller polling it
+    default_playbook_id: Mapped[str | None] = mapped_column(ForeignKey("playbook.id"), nullable=True)
+
+    last_polled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_result: Mapped[dict] = mapped_column(JSON, default=dict)    # {polled, ingested, at}
+    ingested_count: Mapped[int] = mapped_column(Integer, default=0)  # lifetime messages filed
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

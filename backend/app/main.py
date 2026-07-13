@@ -12,9 +12,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+import asyncio
+
+from starlette.concurrency import run_in_threadpool
+
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, esign, inbound, intake, meta, playbook, requests
+from .routers import admin, auth, esign, inbound, intake, mailbox, meta, playbook, requests
 
 log = logging.getLogger("frontdoor")
 
@@ -140,6 +144,38 @@ def _ensure_demo_playbooks() -> None:
         db.close()
 
 
+def _poll_all_sync() -> None:
+    """Poll every active mailbox once, in its own DB session (runs in a threadpool
+    because imaplib is blocking)."""
+    from sqlalchemy import select
+
+    from .models import EmailMailbox
+    from .services.email_poller import poll_all_active
+
+    db = SessionLocal()
+    try:
+        has_active = db.execute(
+            select(EmailMailbox.id).where(EmailMailbox.active == True)  # noqa: E712
+        ).first()
+        if not has_active:
+            return
+        poll_all_active(db)
+    finally:
+        db.close()
+
+
+async def _email_poll_loop() -> None:
+    """Background loop: drain configured inboxes on a fixed cadence. Never crashes
+    the app — poll errors are logged and recorded on the mailbox row."""
+    interval = max(30, settings.email_poll_interval_seconds)
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await run_in_threadpool(_poll_all_sync)
+        except Exception:  # noqa: BLE001
+            log.exception("email poll loop iteration failed")
+
+
 @app.on_event("startup")
 def _startup() -> None:
     assert_production_secrets()  # fail loud on insecure production config
@@ -150,6 +186,8 @@ def _startup() -> None:
         seed()
     _backfill_demo_auth()
     _ensure_demo_playbooks()
+    if settings.email_polling_enabled:
+        asyncio.create_task(_email_poll_loop())  # in-process inbox poller
 
 
 @app.exception_handler(Exception)
@@ -182,4 +220,5 @@ app.include_router(intake.router)
 app.include_router(esign.router)
 app.include_router(playbook.router)
 app.include_router(playbook.list_router)
+app.include_router(mailbox.router)
 app.include_router(meta.router)

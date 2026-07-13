@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
+import { isPublicShell, useAuth } from "../../lib/auth";
 
 export function TopBar() {
   const path = usePathname();
@@ -16,7 +16,7 @@ export function TopBar() {
   }, [path, user]);
 
   const is = (p: string) => (path === p || path.startsWith(p + "/") ? "active" : "");
-  if (path === "/login") return null;
+  if (isPublicShell(path)) return null;
 
   return (
     <div className="topbar">

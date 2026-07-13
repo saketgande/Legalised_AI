@@ -46,17 +46,23 @@ export function useAuth() {
   return c;
 }
 
-/** Redirects to /login when there's no authenticated user. */
+/** Redirects to /login when there's no authenticated user.
+ *  /word-addin manages its own auth (it runs inside Word), so it's exempt. */
+export function isPublicShell(path: string): boolean {
+  return path === "/login" || path.startsWith("/word-addin");
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
   const path = usePathname();
+  const isPublic = isPublicShell(path);
 
   useEffect(() => {
-    if (!loading && !user && path !== "/login") router.replace("/login");
-  }, [loading, user, path, router]);
+    if (!loading && !user && !isPublic) router.replace("/login");
+  }, [loading, user, isPublic, router]);
 
-  if (path === "/login") return <>{children}</>;
+  if (isPublic) return <>{children}</>;
   if (loading) return <div className="container muted">Loading…</div>;
   if (!user) return <div className="container muted">Redirecting to sign in…</div>;
   return <>{children}</>;

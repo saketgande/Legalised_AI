@@ -45,6 +45,10 @@ Request (the spine)
   the first break. The header badge reads "✓ Audit chain intact".
 - **Two faces, one spine**: a requester package-tracker (`/r/[id]`) and a lawyer
   review cockpit (`/review/[id]`), plus a triage inbox (`/inbox`).
+- **Word add-in** (`word-addin/` + `/word-addin`) — an Office.js task pane that
+  reads the open document, runs it through the inbound redline engine, and inserts
+  proposed edits as **tracked changes** (`changeTrackingMode = trackAll`). Meets
+  lawyers where they negotiate; falls back to a paste box in a plain browser.
 - **Multi-channel intake** — a form (`/new`), a **chatbot** (`/chat`, natural
   language → extracted request), and an **email webhook**
   (`POST /api/intake/email-webhook`) all funnel through one `services/intake`
@@ -140,9 +144,11 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 ## Not yet built (next slices)
 
-1. **Word add-in web editor** — the redline engine inside Word (see `word-addin/`).
-2. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
+1. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
    poller would call it per message (no code-path change).
+2. **Playbook admin UI + learning flywheel** — manage rules in-app; learn positions
+   from lawyer overrides.
+3. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 5. **Playbook-learning flywheel** (learn positions from lawyer overrides) and a
    playbook admin UI.

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Frontdoor Word add-in manifest (task pane).
+
+  The task pane is served by the Next app at /word-addin. Sideload this manifest
+  in Word (see word-addin/README.md). Replace the SourceLocation host if you
+  deploy the frontend elsewhere, and swap the icon URLs for your own.
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="TaskPaneApp">
+
+  <Id>5b8f2c9e-3a41-4c8d-9f2a-frontdoor0001</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Frontdoor</ProviderName>
+  <DefaultLocale>en-US</DefaultLocale>
+  <DisplayName DefaultValue="Frontdoor Redline"/>
+  <Description DefaultValue="Redline a counterparty NDA against your playbook, without leaving Word."/>
+  <IconUrl DefaultValue="https://legalised-web.onrender.com/addin-icon-32.png"/>
+  <HighResolutionIconUrl DefaultValue="https://legalised-web.onrender.com/addin-icon-80.png"/>
+  <SupportUrl DefaultValue="https://legalised-web.onrender.com"/>
+
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://legalised-web.onrender.com/word-addin"/>
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>

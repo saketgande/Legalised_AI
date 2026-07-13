@@ -1,0 +1,47 @@
+# Render blueprint — one-click deploy of the whole stack:
+#   a managed Postgres, the FastAPI backend, and the Next.js frontend.
+#
+# Deploy: push this repo to GitHub, then in Render → "New +" → "Blueprint"
+# and point it at the repo. Render reads this file and provisions everything.
+# After the first deploy, set the two `sync: false` vars (they depend on the
+# generated service URLs — see DEPLOY.md).
+
+databases:
+  - name: legalised-db
+    databaseName: frontdoor
+    user: frontdoor
+    plan: free
+
+services:
+  # ——— FastAPI backend ———
+  - type: web
+    name: legalised-api
+    runtime: python
+    plan: free
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: legalised-db
+          property: connectionString
+      - key: SEED_ON_START
+        value: "true"
+      - key: CORS_ORIGINS
+        sync: false          # set to the web service URL after first deploy
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+  # ——— Next.js frontend ———
+  - type: web
+    name: legalised-web
+    runtime: node
+    plan: free
+    buildCommand: "cd frontend && npm install && npm run build"
+    startCommand: "cd frontend && npm start -- -p $PORT"
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false          # set to the api service URL after first deploy
+      - key: NODE_VERSION
+        value: "22.11.0"

@@ -26,6 +26,12 @@ app.add_middleware(
 @app.on_event("startup")
 def _startup() -> None:
     Base.metadata.create_all(bind=engine)
+    if settings.seed_on_start:
+        # Idempotent: no-op once an organisation exists. Lets one-click deploys
+        # come up with the playbook + reviewers already present.
+        from .seed import seed
+
+        seed()
 
 
 @app.get("/api/health")

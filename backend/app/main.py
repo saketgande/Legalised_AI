@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, inbound, meta, requests
+from .routers import admin, auth, inbound, intake, meta, requests
 
 app = FastAPI(title="Frontdoor — NDA wedge API", version="0.1.0")
 
@@ -80,4 +80,5 @@ app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(requests.router)
 app.include_router(inbound.router)
+app.include_router(intake.router)
 app.include_router(meta.router)

@@ -28,7 +28,9 @@ export function TopBar() {
         <nav className="topnav">
           {has("request:read_all") && <Link href="/inbox" className={is("/inbox")}>Legal inbox</Link>}
           {has("request:create") && <Link href="/new" className={is("/new")}>Request an NDA</Link>}
+          {has("request:create") && <Link href="/chat" className={is("/chat")}>Ask</Link>}
           {has("request:read_all") && <Link href="/inbound" className={is("/inbound")}>Review their paper</Link>}
+          {has("request:read_all") && <Link href="/email-sim" className={is("/email-sim")}>Email intake</Link>}
           {has("admin:manage_users") && <Link href="/admin" className={is("/admin")}>Admin</Link>}
         </nav>
       )}

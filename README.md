@@ -45,6 +45,13 @@ Request (the spine)
   the first break. The header badge reads "✓ Audit chain intact".
 - **Two faces, one spine**: a requester package-tracker (`/r/[id]`) and a lawyer
   review cockpit (`/review/[id]`), plus a triage inbox (`/inbox`).
+- **Multi-channel intake** — a form (`/new`), a **chatbot** (`/chat`, natural
+  language → extracted request), and an **email webhook**
+  (`POST /api/intake/email-webhook`) all funnel through one `services/intake`
+  core, so triage, drafting/redlining, and audit are identical per channel. The
+  email adapter classifies inbound (they sent a contract — body or attachment)
+  vs. outbound (they're asking for one) and routes accordingly; intent + field
+  extraction uses Claude with a heuristic fallback.
 - **Auth + RBAC**: email/password login (JWT bearer), 8 roles, and a permission
   model. Two authorization layers: permission grants (can you take this kind of
   action?) and **rung-gated approval** — a deviation that triggers the `gc` rung
@@ -121,9 +128,10 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 ## Not yet built (next slices)
 
-1. **Multi-channel intake** — email webhook + chatbot into the same pipeline.
-2. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
-3. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
+1. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
+2. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
+3. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
+   poller would call it per message (no code-path change).
 4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 5. **Alembic migrations** (skeleton uses `create_all` + startup ALTERs) and the
    playbook-learning flywheel (learn positions from lawyer overrides).

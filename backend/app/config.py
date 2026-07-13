@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     auth_token_ttl_hours: int = 12
     auth_demo_password: str = "demo1234"
 
+    # Optional shared secret for the inbound email webhook (X-Intake-Secret header).
+    # Empty -> webhook is open (dev). Set in production.
+    intake_webhook_secret: str = ""
+
     # Comma-separated list of allowed front-end origins. In production set
     # CORS_ORIGINS to the deployed web URL, e.g. "https://legalised-web.onrender.com".
     cors_origins_raw: str = Field(

@@ -280,82 +280,17 @@ def create_request(
     user: User = Depends(require(Permission.REQUEST_CREATE)),
     db: Session = Depends(get_db),
 ):
-    org_id = user.org_id
+    from ..services import intake
+
     # the requester is the authenticated user (attribution is real, not free-text)
-    requester = _get_or_create_person(db, org_id, user.name, user.email)
-    counterparty = _get_or_create_counterparty(db, org_id, payload.counterparty_name)
-
-    r = Request(
-        ref=_next_ref(db),
-        org_id=org_id,
-        type="NDA",
-        direction=Direction.OUTBOUND,
-        nda_type=NdaType(payload.nda_type),
-        state=RequestState.NEW,
-        requester_id=requester.id,
-        counterparty_id=counterparty.id,
-        purpose=payload.purpose,
-        jurisdiction=payload.jurisdiction,
-        term_months=payload.term_months,
-        channel=payload.channel,
+    requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
+    r = intake.create_outbound(
+        db, org=user.org_id, requester=requester,
+        actor=intake.Actor(user.id, ActorType.USER, user.name),
+        counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
+        purpose=payload.purpose, jurisdiction=payload.jurisdiction,
+        term_months=payload.term_months, channel=payload.channel,
     )
-    db.add(r)
-    db.flush()
-    record_audit(
-        db, org_id=org_id, action="request.created", resource_type="Request", resource_id=r.id,
-        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-        metadata={"counterparty": counterparty.name, "channel": payload.channel},
-    )
-
-    # classify (this slice: outbound, on our paper)
-    r.state = RequestState.CLASSIFIED
-    record_audit(
-        db, org_id=org_id, action="request.classified", resource_type="Request", resource_id=r.id,
-        actor_type=AGENT, actor_label="Intake Assistant",
-        metadata={"direction": "OUTBOUND", "type": "NDA"},
-    )
-
-    # triage / route
-    result = triage_outbound(r, counterparty)
-    r.lane = result.lane
-    r.triage_reasons = result.reasons
-    r.state = RequestState.ROUTED
-    record_audit(
-        db, org_id=org_id, action="request.routed", resource_type="Request", resource_id=r.id,
-        actor_type=AGENT, actor_label="Intake Assistant",
-        metadata={"lane": result.lane.value, "reasons": result.reasons},
-    )
-
-    # generate from playbook
-    generate_outbound_nda(db, r)
-    r.state = RequestState.DRAFTED
-    doc = db.get(Document, r.document_id)
-    version = db.get(DocumentVersion, doc.current_version_id)
-    record_audit(
-        db, org_id=org_id, action="document.generated", resource_type="Request", resource_id=r.id,
-        actor_type=AGENT, actor_label="Playbook Engine",
-        metadata={"title": doc.title, "content_hash": version.content_hash},
-    )
-
-    # lane fork
-    if result.lane == Lane.AUTO:
-        r.state = RequestState.APPROVED
-        record_audit(
-            db, org_id=org_id, action="request.auto_approved", resource_type="Request", resource_id=r.id,
-            actor_type=AGENT, actor_label="Policy Engine",
-            metadata={"reasons": result.reasons},
-        )
-    else:
-        build_ladder(db, r, result.reasons)
-        r.state = RequestState.IN_REVIEW
-        record_audit(
-            db, org_id=org_id, action="review.requested", resource_type="Request", resource_id=r.id,
-            actor_type=ActorType.SYSTEM, actor_label="System",
-            metadata={"lane": result.lane.value, "reasons": result.reasons},
-        )
-
-    db.commit()
-    db.refresh(r)
     return _detail(db, r)
 
 

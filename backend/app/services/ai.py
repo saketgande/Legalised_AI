@@ -31,11 +31,72 @@ class SemanticVerdict:
     suggested_after: str | None = None
 
 
+@dataclass
+class IntakeParse:
+    intent: str                   # "outbound" | "inbound" | "other"
+    counterparty: str | None
+    nda_type: str                 # MUTUAL | ONE_WAY
+    purpose: str
+    term_months: int
+    jurisdiction: str
+    reply: str                    # natural-language reply for the chatbot
+    confidence: float
+    model: str
+
+
+_PURPOSE_KEYWORDS = {
+    "vendor": "vendor_evaluation", "supplier": "vendor_evaluation",
+    "sales": "sales_evaluation", "customer": "sales_evaluation", "eval": "sales_evaluation",
+    "hir": "hiring", "recruit": "hiring", "candidate": "hiring",
+    "partner": "partnership_exploration", "collab": "partnership_exploration",
+    "litig": "litigation_support", "dispute": "litigation_support",
+}
+_JURIS_CODES = {
+    "delaware": "US-DE", "california": "US-CA", "new york": "US-NY",
+    "england": "UK", "wales": "UK", "united kingdom": "UK", "germany": "EU-DE",
+}
+
+
+def _guess_intake(text: str) -> IntakeParse:
+    import re
+
+    t = text.lower()
+    intent = "outbound"
+    if any(w in t for w in ("review their", "they sent", "counterparty sent", "their paper", "sent us", "sent over", "attached")):
+        intent = "inbound"
+
+    counterparty = None
+    m = re.search(r"\bwith\s+([A-Z][\w.&'-]*(?:\s+[A-Z][\w.&'-]*){0,3})", text)
+    if m:
+        counterparty = re.sub(r"\s+(for|to|regarding|about)$", "", m.group(1)).strip()
+
+    nda_type = "ONE_WAY" if any(w in t for w in ("one-way", "one way", "unilateral")) else "MUTUAL"
+    purpose = next((v for k, v in _PURPOSE_KEYWORDS.items() if k in t), "sales_evaluation")
+
+    term = 24
+    tm = re.search(r"(\d+)\s*(month|year)", t)
+    if tm:
+        term = int(tm.group(1)) * (12 if tm.group(2) == "year" else 1)
+
+    jurisdiction = next((code for name, code in _JURIS_CODES.items() if name in t), "US")
+
+    if counterparty:
+        reply = (f"Got it — a {'one-way' if nda_type == 'ONE_WAY' else 'mutual'} NDA with "
+                 f"{counterparty} for {purpose.replace('_', ' ')} ({term} months). Filing it now.")
+    else:
+        reply = "Happy to help with an NDA. Who's the counterparty (the other company)?"
+
+    return IntakeParse(intent, counterparty, nda_type, purpose, term, jurisdiction, reply, 0.55, "heuristic")
+
+
 class HeuristicAIClient:
     """No model behind this — deterministic keyword checks for the cases we can
     reason about without one; None (abstain) for prose we won't fake-analyze."""
 
     model = "heuristic"
+
+    def parse_intake(self, text: str) -> IntakeParse:
+        return _guess_intake(text)
 
     def compare_clause(self, clause_text: str, rule, ctx: dict) -> SemanticVerdict | None:
         if rule.clause_type == "limitation_of_liability":
@@ -77,6 +138,52 @@ class ClaudeAIClient:
         self.api_key = api_key
         self.model = model
         self._fallback = HeuristicAIClient()
+
+    def _call(self, system: str, user: str) -> dict | None:
+        try:
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": self.api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json={"model": self.model, "max_tokens": 500, "temperature": 0,
+                      "system": system, "messages": [{"role": "user", "content": user}]},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            return _extract_json(resp.json()["content"][0]["text"])
+        except Exception:
+            return None
+
+    def parse_intake(self, text: str) -> IntakeParse:
+        system = (
+            "You triage inbound requests to a corporate legal team. Extract the NDA request "
+            "from the message. Respond with ONLY a JSON object."
+        )
+        user = (
+            f"Message:\n{text}\n\n"
+            "Return JSON: {\"intent\": \"outbound\"|\"inbound\"|\"other\", "
+            "\"counterparty\": \"<company name or null>\", \"nda_type\": \"MUTUAL\"|\"ONE_WAY\", "
+            "\"purpose\": \"sales_evaluation\"|\"vendor_evaluation\"|\"hiring\"|\"partnership_exploration\"|\"litigation_support\", "
+            "\"term_months\": <int>, \"jurisdiction\": \"US\"|\"US-CA\"|\"US-NY\"|\"US-DE\"|\"UK\"|\"EU-DE\", "
+            "\"reply\": \"<one friendly sentence back to the requester>\", \"confidence\": 0.0-1.0}. "
+            "intent is 'inbound' if they want us to review a contract the other side sent, else 'outbound'."
+        )
+        data = self._call(system, user)
+        if not data or "intent" not in data:
+            return self._fallback.parse_intake(text)
+        try:
+            return IntakeParse(
+                intent=str(data.get("intent", "outbound")),
+                counterparty=(data.get("counterparty") or None),
+                nda_type="ONE_WAY" if str(data.get("nda_type")) == "ONE_WAY" else "MUTUAL",
+                purpose=str(data.get("purpose", "sales_evaluation")),
+                term_months=int(data.get("term_months", 24) or 24),
+                jurisdiction=str(data.get("jurisdiction", "US")),
+                reply=str(data.get("reply", "")).strip()[:300],
+                confidence=max(0.0, min(1.0, float(data.get("confidence", 0.7)))),
+                model=self.model,
+            )
+        except (TypeError, ValueError):
+            return self._fallback.parse_intake(text)
 
     def compare_clause(self, clause_text: str, rule, ctx: dict) -> SemanticVerdict | None:
         user = (

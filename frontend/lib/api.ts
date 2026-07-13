@@ -209,6 +209,17 @@ export const api = {
       j<{ intact: boolean; broken_at: number | null; count: number }>,
     ),
 
+  // intake channels
+  chatIntake: (message: string) =>
+    fetch(`${BASE}/api/intake/chat`, JSON_POST({ message })).then(
+      j<{ reply: string; created: { id: string; ref: string; lane: string | null; state: string; counterparty: string } | null; extracted: Record<string, unknown> }>,
+    ),
+
+  emailWebhook: (payload: { from_email: string; from_name?: string; subject?: string; body: string }) =>
+    fetch(`${BASE}/api/intake/email-webhook`, JSON_POST(payload)).then(
+      j<{ created: boolean; classified: string; request?: RequestSummary; reply?: string }>,
+    ),
+
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),
   changeUserRole: (userId: string, role: string) =>

@@ -45,61 +45,17 @@ def _ingest_inbound(
     db: Session, user: User, *, counterparty_name: str, nda_type: str, purpose: str,
     body_text: str, source: str,
 ) -> Request:
-    """Shared core: build the request + document from extracted text and run the
-    engine. Both the paste and file-upload endpoints funnel through here."""
-    org_id = user.org_id
-    requester = R._get_or_create_person(db, org_id, user.name, user.email)
-    counterparty = R._get_or_create_counterparty(db, org_id, counterparty_name)
+    """Attribute an inbound review to the authenticated staff user, then run it
+    through the shared intake pipeline."""
+    from ..services import intake
 
-    r = Request(
-        ref=R._next_ref(db), org_id=org_id, type="NDA",
-        direction=Direction.INBOUND, nda_type=NdaType(nda_type), our_role=OurRole.RECIPIENT,
-        state=RequestState.NEW, requester_id=requester.id, counterparty_id=counterparty.id,
-        purpose=purpose, jurisdiction="US", term_months=24, channel="EMAIL",
+    requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
+    return intake.create_inbound(
+        db, org=user.org_id, requester=requester,
+        actor=intake.Actor(user.id, ActorType.USER, user.name),
+        counterparty_name=counterparty_name, nda_type=nda_type, purpose=purpose,
+        body_text=body_text, channel="EMAIL", source=source,
     )
-    db.add(r)
-    db.flush()
-    record_audit(
-        db, org_id=org_id, action="request.created", resource_type="Request", resource_id=r.id,
-        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-        metadata={"counterparty": counterparty.name, "direction": "INBOUND", "source": source},
-    )
-    record_audit(
-        db, org_id=org_id, action="request.classified", resource_type="Request", resource_id=r.id,
-        actor_type=ActorType.AGENT, actor_label="Intake Assistant",
-        metadata={"direction": "INBOUND", "type": "NDA", "role": "RECIPIENT", "source": source},
-    )
-
-    title = f"{counterparty.name} — inbound NDA (their paper)"
-    doc = Document(org_id=org_id, request_id=r.id, origin="UPLOADED", title=title)
-    db.add(doc)
-    db.flush()
-    version = DocumentVersion(
-        document_id=doc.id, version_no=1, body_markdown=body_text,
-        content_hash=hashlib.sha256(body_text.encode("utf-8")).hexdigest(),
-        generated_by=f"counterparty-{source}",
-    )
-    db.add(version)
-    db.flush()
-    for i, (section_no, heading, body) in enumerate(segment(body_text), start=1):
-        db.add(Clause(
-            document_version_id=version.id, ordinal=i, section_no=section_no or str(i),
-            clause_type=classify(heading, body), heading=heading, body_text=body,
-        ))
-    doc.current_version_id = version.id
-    r.document_id = doc.id
-    db.flush()
-
-    run = run_inbound_review(db, r)
-    r.state = RequestState.IN_REVIEW
-    record_audit(
-        db, org_id=org_id, action="review.completed", resource_type="Request", resource_id=r.id,
-        actor_type=ActorType.AGENT, actor_label="Redline Engine",
-        metadata={"summary": run.summary, "proposed_changes": len(run.changes), "source": source},
-    )
-    db.commit()
-    db.refresh(r)
-    return r
 
 
 @router.post("/requests/inbound", response_model=RequestDetailOut)

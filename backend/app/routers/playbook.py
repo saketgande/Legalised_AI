@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import ActorType, Playbook, PlaybookRule, ProposedChange, User
+from ..models import ActorType, Playbook, PlaybookRule, ProposedChange, Request, ReviewRun, User
 from ..permissions import RUNG_RANK, Permission
 from ..security import require
 from ..services.audit import record_audit
@@ -33,6 +33,15 @@ class RuleIn(BaseModel):
     mandatory: bool = True
     deviation_rung: str = "none"
     nda_type: str | None = None  # applies_when.ndaType: MUTUAL | ONE_WAY | null(any)
+
+
+def _change_org(db: Session, change: ProposedChange) -> str | None:
+    """A ProposedChange has no org of its own — resolve it via run -> request."""
+    run = db.get(ReviewRun, change.run_id)
+    if run is None:
+        return None
+    req = db.get(Request, run.request_id)
+    return req.org_id if req else None
 
 
 def _active_playbook(db: Session, org_id: str) -> Playbook:
@@ -110,6 +119,15 @@ def update_rule(rule_id: str, payload: RuleIn, user: User = Depends(require(Perm
     r = db.get(PlaybookRule, rule_id)
     if r is None or r.playbook_id != pb.id:
         raise HTTPException(404, "rule not found")
+    dupe = db.execute(
+        select(PlaybookRule).where(
+            PlaybookRule.playbook_id == pb.id,
+            PlaybookRule.rule_key == payload.rule_key.strip(),
+            PlaybookRule.id != rule_id,
+        )
+    ).scalars().first()
+    if dupe:
+        raise HTTPException(409, f"rule_key '{payload.rule_key}' already exists")
     before = _rule_out(r)
     r.rule_key = payload.rule_key.strip()
     r.clause_type = payload.clause_type.strip()
@@ -140,6 +158,12 @@ def learn_from_change(change_id: str, user: User = Depends(require(Permission.PL
     change = db.get(ProposedChange, change_id)
     if change is None:
         raise HTTPException(404, "proposed change not found")
+    # org-scope: a change from another organisation is not visible here (no cross-tenant learn)
+    if _change_org(db, change) != user.org_id:
+        raise HTTPException(404, "proposed change not found")
+    # only learn from a lawyer's vetted edit — never raw/pending AI text or a rejected change
+    if change.decision != "APPROVED_WITH_EDIT":
+        raise HTTPException(409, "the flywheel only adopts a lawyer's edited redline (approve-with-edit)")
     if not change.rule_key:
         raise HTTPException(400, "this change isn't tied to a playbook rule")
     if not change.after_text.strip():

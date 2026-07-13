@@ -24,6 +24,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -149,6 +150,7 @@ class PlaybookRule(Base):
     in the inbound path (next slice) we compare counterparty paper against these.
     """
     __tablename__ = "playbook_rule"
+    __table_args__ = (UniqueConstraint("playbook_id", "rule_key", name="uq_playbook_rule_key"),)
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     playbook_id: Mapped[str] = mapped_column(ForeignKey("playbook.id"), nullable=False)
     rule_key: Mapped[str] = mapped_column(String, nullable=False)  # "LoL-02" — the citation target

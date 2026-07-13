@@ -114,6 +114,8 @@ def decide_change(
 
     run = db.get(ReviewRun, change.run_id)
     r = db.get(Request, run.request_id)
+    if r is None or r.org_id != user.org_id:  # org-scope: no deciding another org's changes
+        raise HTTPException(404, "proposed change not found")
 
     change.decision = action
     if action == "APPROVED_WITH_EDIT" and payload.edited_after_text is not None:

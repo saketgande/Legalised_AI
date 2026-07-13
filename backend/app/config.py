@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     # Empty -> webhook is open (dev). Set in production.
     intake_webhook_secret: str = ""
 
+    # E-signature (DocuSign). When all three are set, the DocuSign client is used;
+    # otherwise the stub client keeps the demo working. HMAC key secures the webhook.
+    docusign_base_uri: str = ""        # e.g. https://demo.docusign.net/restapi
+    docusign_account_id: str = ""
+    docusign_access_token: str = ""    # OAuth token (dev). JWT grant is the prod path.
+    docusign_connect_hmac: str = ""    # verifies DocuSign Connect webhook signatures
+    esign_signer_email: str = ""       # demo override; defaults to the requester's email
+
+    @property
+    def docusign_configured(self) -> bool:
+        return bool(self.docusign_base_uri and self.docusign_account_id and self.docusign_access_token)
+
     # Comma-separated list of allowed front-end origins. In production set
     # CORS_ORIGINS to the deployed web URL, e.g. "https://legalised-web.onrender.com".
     cors_origins_raw: str = Field(

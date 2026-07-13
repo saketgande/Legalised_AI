@@ -102,6 +102,9 @@ class RequestSummaryOut(BaseModel):
     term_months: int
     created_at: datetime
     open_steps: int
+    esign_provider: str | None = None
+    esign_status: str | None = None
+    esign_envelope_id: str | None = None
 
 
 class ProposedChangeOut(BaseModel):

@@ -58,6 +58,9 @@ export type RequestSummary = {
   term_months: number;
   created_at: string;
   open_steps: number;
+  esign_provider: string | null;
+  esign_status: string | null;
+  esign_envelope_id: string | null;
 };
 
 export type Check = { kind: string; name: string; passed: boolean; detail: string; model?: string };

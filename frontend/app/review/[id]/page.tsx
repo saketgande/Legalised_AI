@@ -183,12 +183,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 )}
                 {outForSig && (
                   <>
-                    <div className="notice info" style={{ marginBottom: 10 }}>Counter-proposal sent. Awaiting the counterparty.</div>
-                    <button className="btn" style={{ width: "100%" }} disabled={busy}
-                      onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
+                    <div className="notice info" style={{ marginBottom: 10 }}>
+                      Counter-proposal sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
+                    </div>
+                    {r.esign_envelope_id && <div className="mono muted" style={{ fontSize: 11, marginBottom: 10 }}>envelope {r.esign_envelope_id}</div>}
+                    {r.esign_provider !== "docusign" && (
+                      <button className="btn" style={{ width: "100%" }} disabled={busy}
+                        onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
+                    )}
                   </>
                 )}
-                {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed.</div>}
+                {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}.</div>}
                 {!canSend && !outForSig && !filed && (
                   <div className="muted" style={{ fontSize: 12.5 }}>Decide every proposed change to unlock the counter-proposal.</div>
                 )}
@@ -269,10 +274,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>
               {canSend && <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.send(params.id))}>Approve &amp; send for signature</button>}
               {outForSig && (<>
-                <div className="notice info" style={{ marginBottom: 10 }}>Sent for signature. Awaiting the counterparty.</div>
-                <button className="btn" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
+                <div className="notice info" style={{ marginBottom: 10 }}>
+                  Sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
+                </div>
+                {r.esign_envelope_id && <div className="mono muted" style={{ fontSize: 11, marginBottom: 10 }}>envelope {r.esign_envelope_id}</div>}
+                {r.esign_provider !== "docusign" && (
+                  <button className="btn" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
+                )}
               </>)}
-              {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed. Renewal in {r.term_months} months tracked.</div>}
+              {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}. Renewal in {r.term_months} months tracked.</div>}
               {!canSend && !outForSig && !filed && <div className="muted" style={{ fontSize: 12.5 }}>Clear the approval ladder to unlock sending.</div>}
               {err && <div className="notice warn" style={{ marginTop: 10 }}>{err}</div>}
             </div>

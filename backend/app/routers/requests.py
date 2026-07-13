@@ -31,6 +31,7 @@ from ..models import (
     StepStatus,
     User,
 )
+from ..config import settings
 from ..permissions import Permission, can
 from ..schemas import (
     ApproveStepIn,
@@ -167,6 +168,9 @@ def _summary(db: Session, r: Request) -> dict:
         "term_months": r.term_months,
         "created_at": r.created_at,
         "open_steps": _open_steps(db, r.id),
+        "esign_provider": r.esign_provider,
+        "esign_status": r.esign_status,
+        "esign_envelope_id": r.esign_envelope_id,
     }
 
 
@@ -413,13 +417,39 @@ def send_request(
     if r.state != RequestState.APPROVED:
         raise HTTPException(409, f"request must be APPROVED to send (is {r.state.value})")
     cp = db.get(Counterparty, r.counterparty_id)
-    doc = db.get(Document, r.document_id)
-    envelope = esign.send_for_signature(doc.title if doc else r.ref, cp.name if cp else "counterparty")
+    requester = db.get(Person, r.requester_id)
+
+    # the signing packet: outbound = our draft; inbound = the accepted counter-proposal
+    if r.direction == Direction.INBOUND:
+        from ..services.redline import build_counter_markdown, latest_run
+
+        run = latest_run(db, r.id)
+        body_md = build_counter_markdown(db, r, run) if run else ""
+        title = f"Counter-proposal — {cp.name if cp else 'NDA'}"
+    else:
+        doc = db.get(Document, r.document_id)
+        version = db.get(DocumentVersion, doc.current_version_id) if doc else None
+        body_md = version.body_markdown if version else ""
+        title = doc.title if doc else r.ref
+
+    client = esign.get_esign_client()
+    signer_email = settings.esign_signer_email or (requester.email if requester else "signer@example.com")
+    try:
+        result = client.send_for_signature(
+            subject=title, document_html=esign.render_document_html(title, body_md),
+            signer_email=signer_email, signer_name=cp.name if cp else "Counterparty",
+        )
+    except esign.DocuSignError as e:
+        raise HTTPException(502, str(e))
+
+    r.esign_envelope_id = result.envelope_id
+    r.esign_provider = result.provider
+    r.esign_status = result.status
     r.state = RequestState.OUT_FOR_SIGNATURE
     record_audit(
         db, org_id=r.org_id, action="request.sent", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.SYSTEM, actor_label="System",
-        metadata={"envelope_id": envelope["envelope_id"], "recipient": envelope["recipient"]},
+        metadata={"envelope_id": result.envelope_id, "provider": result.provider, "signer": signer_email},
     )
     db.commit()
     db.refresh(r)
@@ -437,6 +467,8 @@ def simulate_signature(
         raise HTTPException(404, "request not found")
     if r.state != RequestState.OUT_FOR_SIGNATURE:
         raise HTTPException(409, f"request is not out for signature (is {r.state.value})")
+    if r.esign_provider == "docusign":
+        raise HTTPException(409, "real DocuSign envelope — completion arrives via /api/esign/webhook")
     cp = db.get(Counterparty, r.counterparty_id)
     r.state = RequestState.EXECUTED
     record_audit(

@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, inbound, intake, meta, requests
+from .routers import admin, auth, esign, inbound, intake, meta, requests
 
 log = logging.getLogger("frontdoor")
 
@@ -120,4 +120,5 @@ app.include_router(admin.router)
 app.include_router(requests.router)
 app.include_router(inbound.router)
 app.include_router(intake.router)
+app.include_router(esign.router)
 app.include_router(meta.router)

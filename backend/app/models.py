@@ -191,6 +191,11 @@ class Request(Base):
 
     document_id: Mapped[str | None] = mapped_column(ForeignKey("document.id"), nullable=True)
 
+    # e-signature envelope tracking (populated on send)
+    esign_envelope_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    esign_provider: Mapped[str | None] = mapped_column(String, nullable=True)  # stub | docusign
+    esign_status: Mapped[str | None] = mapped_column(String, nullable=True)    # sent | completed | declined
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

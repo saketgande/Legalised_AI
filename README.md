@@ -129,15 +129,19 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 - **Schema is Alembic-managed.** Migrations run on startup: a fresh DB is built
   from `alembic upgrade head`; a DB that predates Alembic is adopted via `stamp`
   (no recreation, no data loss). New schema changes are ordinary Alembic revisions.
+- **E-signature is provider-abstracted.** `send` routes through `get_esign_client()`
+  — DocuSign when `DOCUSIGN_*` env vars are set, else a stub that signs the demo
+  end-to-end. Completion arrives via the HMAC-verified `POST /api/esign/webhook`
+  (flips the request to EXECUTED/FILED); the "simulate signature" button is a
+  dev-only shortcut and is hidden once DocuSign is wired.
 - **Production fail-loud.** With `ENVIRONMENT=production`, the app refuses to boot
   without a strong `AUTH_SECRET` and an `INTAKE_WEBHOOK_SECRET` — a clear failure
   instead of a silent weak-secret deploy.
 
 ## Not yet built (next slices)
 
-1. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
-2. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
-3. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
+1. **Word add-in web editor** — the redline engine inside Word (see `word-addin/`).
+2. **Real M365 email polling** — the webhook adapter is channel-agnostic; a Graph
    poller would call it per message (no code-path change).
 4. **OCR for scanned PDFs** (image-only PDFs currently error with a clear message).
 5. **Playbook-learning flywheel** (learn positions from lawyer overrides) and a

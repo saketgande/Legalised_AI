@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/inter";
 import "./globals.css";
-import { TopBar } from "./components/TopBar";
+import { AppShell } from "./components/AppShell";
 import { AuthGate, AuthProvider } from "../lib/auth";
 
 export const metadata: Metadata = {
@@ -13,8 +14,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <AuthProvider>
-          <TopBar />
-          <AuthGate>{children}</AuthGate>
+          <AppShell>
+            <AuthGate>{children}</AuthGate>
+          </AppShell>
         </AuthProvider>
       </body>
     </html>

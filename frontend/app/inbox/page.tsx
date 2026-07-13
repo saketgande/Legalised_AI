@@ -23,12 +23,16 @@ export default function Inbox() {
   const shown = filter === "needs" ? rows.filter((r) => r.open_steps > 0 || r.state === "APPROVED") : rows;
 
   return (
-    <div className="container">
-      <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
-        <p className="kicker">Legal inbox</p>
-        <span className="muted" style={{ fontSize: 13 }}>{rows.length} requests</span>
+    <div>
+      <div className="page-head">
+        <div className="page-head-row">
+          <div>
+            <p className="kicker">Legal inbox</p>
+            <h1>Triage queue</h1>
+          </div>
+          <span className="muted tnum" style={{ fontSize: 13 }}>{rows.length} requests</span>
+        </div>
       </div>
-      <h1 className="h-serif" style={{ fontSize: 26, margin: "4px 0 18px" }}>Triage queue</h1>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         <button className={`btn ${filter === "all" ? "primary" : "ghost"}`} onClick={() => setFilter("all")}>

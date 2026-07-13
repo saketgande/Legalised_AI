@@ -22,13 +22,15 @@ export default function AdminPage() {
   if (!has("admin:manage_users")) return <div className="container muted">Admins only.</div>;
 
   return (
-    <div className="container">
-      <p className="kicker">Admin</p>
-      <h1 className="h-serif" style={{ fontSize: 26, margin: "4px 0 18px" }}>Users &amp; roles</h1>
-      <p className="muted" style={{ fontSize: 13.5, marginBottom: 16, maxWidth: "70ch" }}>
-        A user&rsquo;s role sets both what they can do and which deviations they can approve. Role
-        changes are chain-sealed in the audit log; the last admin can&rsquo;t be demoted.
-      </p>
+    <div>
+      <div className="page-head">
+        <p className="kicker">Administration</p>
+        <h1>Users &amp; roles</h1>
+        <p className="sub">
+          A user&rsquo;s role sets both what they can do and which deviations they can approve. Role
+          changes are chain-sealed in the audit log; the last admin can&rsquo;t be demoted.
+        </p>
+      </div>
       {err && <div className="notice warn" style={{ marginBottom: 14 }}>{err}</div>}
 
       <div className="card" style={{ overflow: "hidden" }}>
@@ -44,7 +46,7 @@ export default function AdminPage() {
                   <td className="ref">{u.email}</td>
                   <td>
                     <select value={u.role} onChange={(e) => changeRole(u.id, e.target.value)}
-                      style={{ fontFamily: "inherit", fontSize: 13, padding: "5px 8px", borderRadius: 7, border: "1px solid var(--hairline)", background: "var(--surface)", color: "var(--ink)" }}>
+                      style={{ fontSize: 13, padding: "6px 30px 6px 10px", width: "auto", minWidth: 150 }}>
                       {ROLES.map((r) => <option key={r} value={r}>{r.replace(/_/g, " ")}</option>)}
                     </select>
                   </td>

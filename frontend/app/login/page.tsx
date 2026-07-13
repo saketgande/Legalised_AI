@@ -32,9 +32,9 @@ export default function Login() {
   }
 
   return (
-    <div className="container narrow" style={{ maxWidth: 460, paddingTop: 60 }}>
-      <div className="brand" style={{ marginBottom: 18 }}>
-        <span className="mk">F</span><span style={{ fontWeight: 700, fontSize: 18 }}>Frontdoor</span>
+    <div style={{ maxWidth: 440, margin: "0 auto", padding: "8vh 20px 48px" }}>
+      <div className="sb-brand" style={{ padding: "0 0 20px" }}>
+        <span className="mk">F</span><span className="nm" style={{ fontSize: 18 }}>Frontdoor</span>
       </div>
       <h1 className="h-serif" style={{ fontSize: 26, margin: "0 0 6px" }}>Sign in</h1>
       <p className="muted" style={{ marginBottom: 22, fontSize: 14 }}>

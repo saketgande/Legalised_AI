@@ -60,10 +60,38 @@ export type RequestSummary = {
   open_steps: number;
 };
 
+export type Check = { kind: string; name: string; passed: boolean; detail: string };
+
+export type ProposedChange = {
+  id: string;
+  ordinal: number;
+  section_no: string;
+  heading: string;
+  finding: "DEVIATION" | "MISSING" | "NOVEL" | "ACCEPTABLE_FALLBACK";
+  rule_key: string | null;
+  before_text: string;
+  after_text: string;
+  rationale: string;
+  checks: Check[];
+  confidence: number | null;
+  triggered_rung: string;
+  decision: "PENDING" | "APPROVED" | "APPROVED_WITH_EDIT" | "REJECTED";
+};
+
+export type Review = {
+  id: string;
+  status: string;
+  summary: Record<string, number>;
+  changes: ProposedChange[];
+  counter_markdown: string;
+  required_rungs: string[];
+};
+
 export type RequestDetail = RequestSummary & {
   triage_reasons: string[];
   document: DocumentOut | null;
   ladder: Ladder | null;
+  review: Review | null;
   timeline: TimelineEvent[];
 };
 
@@ -95,6 +123,20 @@ export const api = {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
+    }).then(j<RequestDetail>),
+
+  createInbound: (body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/requests/inbound`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(j<RequestDetail>),
+
+  decideChange: (changeId: string, action: "approve" | "reject" | "edit", edited_after_text?: string) =>
+    fetch(`${BASE}/api/changes/${changeId}/decide`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action, edited_after_text }),
     }).then(j<RequestDetail>),
 
   listRequests: (q: { state?: string; lane?: string } = {}) => {

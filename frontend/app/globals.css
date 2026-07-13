@@ -173,3 +173,52 @@ button { font-family: inherit; }
 .reasons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 7px; }
 .reasons li { display: flex; gap: 8px; font-size: 12.5px; color: var(--muted); }
 .reasons li::before { content: "▹"; color: var(--accent); }
+
+/* ——— inbound redline cockpit ——— */
+.summary-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 2px; }
+.schip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 8px; background: var(--surface-2); border: 1px solid var(--hairline-2); }
+.schip b { font-variant-numeric: tabular-nums; }
+.schip.dev { background: var(--crit-soft); color: var(--crit); border-color: transparent; }
+.schip.miss { background: var(--warn-soft); color: var(--warn); border-color: transparent; }
+.schip.ok { background: var(--good-soft); color: var(--good); border-color: transparent; }
+
+.find-badge { font-size: 10px; font-weight: 700; letter-spacing: .03em; padding: 2px 7px; border-radius: 5px; }
+.find-badge.DEVIATION { background: var(--crit-soft); color: var(--crit); }
+.find-badge.MISSING { background: var(--warn-soft); color: var(--warn); }
+.find-badge.NOVEL { background: var(--accent-soft); color: var(--accent); }
+
+.change-card { border: 1px solid var(--hairline); border-radius: 11px; padding: 14px; margin-bottom: 12px; background: var(--surface); }
+.change-card.decided { opacity: .62; }
+.change-card .cc-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.change-card .cc-head { font-weight: 650; font-size: 13.5px; }
+.change-card .cc-sec { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+.change-card .cc-rationale { font-size: 12.5px; color: var(--muted); margin: 0 0 10px; line-height: 1.5; }
+
+.checks2 { display: flex; flex-direction: column; gap: 6px; margin: 0 0 11px; }
+.chk2 { display: flex; gap: 8px; align-items: flex-start; font-size: 11.5px; line-height: 1.4; }
+.chk2 .ci2 { flex: none; width: 15px; height: 15px; border-radius: 4px; display: grid; place-items: center; font-size: 9px; font-weight: 800; margin-top: 1px; }
+.chk2.pass .ci2 { background: var(--good-soft); color: var(--good); }
+.chk2.fail .ci2 { background: var(--crit-soft); color: var(--crit); }
+.chk2 .kind { font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; margin-right: 4px; }
+.chk2 .kind.DETERMINISTIC { background: var(--good-soft); color: var(--good); }
+.chk2 .kind.SEMANTIC { background: var(--accent-soft); color: var(--accent); }
+.chk2 .cx2 { color: var(--muted); }
+
+.cc-cite { display: flex; gap: 8px; font-size: 11.5px; color: var(--muted); border-left: 2px solid var(--accent); padding: 2px 0 2px 9px; margin: 0 0 10px; }
+.cc-cite b { color: var(--ink); font-weight: 600; }
+
+.cc-redline { font-family: var(--serif); font-size: 12.5px; line-height: 1.6; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; margin: 0 0 11px; }
+.cc-redline del { color: var(--crit); text-decoration-color: color-mix(in srgb, var(--crit) 60%, transparent); }
+.cc-redline ins { text-decoration: none; color: var(--good); background: var(--good-soft); border-radius: 3px; padding: 0 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+.cc-meta { display: flex; align-items: center; gap: 10px; margin-bottom: 11px; }
+.cc-conf { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.cc-conf .bar2 { width: 54px; height: 5px; border-radius: 3px; background: var(--hairline); overflow: hidden; }
+.cc-conf .bar2 i { display: block; height: 100%; background: var(--good); }
+.cc-rung { font-size: 10.5px; font-weight: 650; color: var(--warn); background: var(--warn-soft); padding: 2px 7px; border-radius: 5px; }
+
+.cc-actions { display: flex; gap: 7px; }
+.cc-actions .btn { flex: 1; text-align: center; padding: 7px 6px; font-size: 12px; }
+.cc-decided { font-size: 12px; font-weight: 650; }
+.cc-decided.APPROVED, .cc-decided.APPROVED_WITH_EDIT { color: var(--good); }
+.cc-decided.REJECTED { color: var(--crit); }

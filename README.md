@@ -45,6 +45,14 @@ Request (the spine)
   the first break. The header badge reads "✓ Audit chain intact".
 - **Two faces, one spine**: a requester package-tracker (`/r/[id]`) and a lawyer
   review cockpit (`/review/[id]`), plus a triage inbox (`/inbox`).
+- **Inbound redline engine** (`/inbound`): paste a counterparty's NDA → it's
+  segmented into clauses, classified against the playbook, and checked by a
+  **hybrid** engine — *deterministic* validators for the things LLMs get wrong
+  (liability cap / term in months, governing-law jurisdiction, missing mandatory
+  clauses) and *semantic* checks for positions (confidentiality carve-out). Each
+  finding is a **proposed redline in PENDING state** (the AgentDecision gate);
+  nothing enters the counter-proposal until a human approves it. The request
+  becomes sendable only once every change is decided.
 
 ## Run it
 
@@ -101,11 +109,12 @@ cd backend && . .venv/bin/activate && pytest        # triage fork + audit hashin
 
 ## Not yet built (next slices)
 
-1. **Inbound third-party review** — upload counterparty paper → parse to
-   `Clause[]` → hybrid engine (deterministic checks for numbers/dates/defined
-   terms + LLM for semantic comparison) → proposed redlines as pending
-   `AgentDecision`s → approval gated.
-2. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
-3. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
-4. **Auth / RBAC**, Alembic migrations (skeleton uses `create_all`), and the
+1. **Real LLM semantic checks** — the semantic checks are heuristic today; the
+   `semantic_*` seam in `redline.py` swaps in `@aegis/ai`-routed Claude calls
+   without changing callers. Deterministic checks stay as-is.
+2. **.docx ingestion** — inbound review takes pasted text today; add a Word/PDF
+   parser feeding the same `segment()` → `Clause[]` path.
+3. **Word add-in + web editor** as two thin clients over one `editOps` protocol.
+4. **Real e-signature** (DocuSign/Adobe) at the `esign.py` seam.
+5. **Auth / RBAC**, Alembic migrations (skeleton uses `create_all`), and the
    playbook-learning flywheel (learn positions from lawyer overrides).

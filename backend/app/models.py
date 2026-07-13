@@ -256,6 +256,45 @@ class ApprovalStep(Base):
     ladder: Mapped[ApprovalLadder] = relationship(back_populates="steps")
 
 
+# ——————————————— inbound review: engine output + governance gate ———————————————
+class ReviewRun(Base):
+    """One run of the hybrid engine over a counterparty document."""
+    __tablename__ = "review_run"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    request_id: Mapped[str] = mapped_column(ForeignKey("request.id"), nullable=False)
+    document_version_id: Mapped[str] = mapped_column(ForeignKey("document_version.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="COMPLETE")  # COMPLETE | ABSTAINED
+    summary: Mapped[dict] = mapped_column(JSON, default=dict)  # {compliant, fallback, deviation, missing, novel}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    changes: Mapped[list[ProposedChange]] = relationship(
+        back_populates="run", order_by="ProposedChange.ordinal"
+    )
+
+
+class ProposedChange(Base):
+    """A single engine finding + proposed redline. This IS the AgentDecision:
+    nothing mutates the document until a human approves it."""
+    __tablename__ = "proposed_change"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(ForeignKey("review_run.id"), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    clause_id: Mapped[str | None] = mapped_column(ForeignKey("clause.id"), nullable=True)  # null when MISSING
+    section_no: Mapped[str] = mapped_column(String, default="")
+    heading: Mapped[str] = mapped_column(String, default="")
+    finding: Mapped[str] = mapped_column(String, nullable=False)  # DEVIATION | MISSING | NOVEL | ACCEPTABLE_FALLBACK
+    rule_key: Mapped[str | None] = mapped_column(String, nullable=True)  # citation target
+    before_text: Mapped[str] = mapped_column(Text, default="")
+    after_text: Mapped[str] = mapped_column(Text, default="")  # proposed replacement / insertion
+    rationale: Mapped[str] = mapped_column(Text, default="")
+    checks: Mapped[list] = mapped_column(JSON, default=list)  # [{kind, name, passed, detail}]
+    confidence: Mapped[float | None] = mapped_column(default=None)
+    triggered_rung: Mapped[str] = mapped_column(String, default="none")
+    decision: Mapped[str] = mapped_column(String, default="PENDING")  # PENDING | APPROVED | APPROVED_WITH_EDIT | REJECTED
+    decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    run: Mapped[ReviewRun] = relationship(back_populates="changes")
+
+
 # ——————————————————— append-only, hash-chained audit ———————————————————
 class AuditEvent(Base):
     """Tamper-evident ledger. ``content_hash`` = sha256 over the canonical row

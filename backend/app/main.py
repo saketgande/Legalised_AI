@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from .db import Base, engine
-from .routers import meta, requests
+from .routers import inbound, meta, requests
 
 app = FastAPI(title="Frontdoor — NDA wedge API", version="0.1.0")
 
@@ -40,4 +40,5 @@ def health() -> dict:
 
 
 app.include_router(requests.router)
+app.include_router(inbound.router)
 app.include_router(meta.router)

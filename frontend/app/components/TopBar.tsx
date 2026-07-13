@@ -23,6 +23,7 @@ export function TopBar() {
       <nav className="topnav">
         <Link href="/inbox" className={is("/inbox")}>Legal inbox</Link>
         <Link href="/new" className={is("/new")}>Request an NDA</Link>
+        <Link href="/inbound" className={is("/inbound")}>Review their paper</Link>
       </nav>
       <span className="spacer" />
       {chain && (

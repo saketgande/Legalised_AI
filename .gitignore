@@ -17,8 +17,6 @@ pgdata/
 pgsock/
 
 # local demo / screenshot automation (session scratch)
-/shots.mjs
-/demo.mjs
-/prod-shots.mjs
 /video/
 /prod/
+/*.mjs

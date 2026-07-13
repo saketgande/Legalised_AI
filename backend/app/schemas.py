@@ -23,6 +23,21 @@ class ApproveStepIn(BaseModel):
     note: str | None = None
 
 
+class CreateInboundIn(BaseModel):
+    counterparty_name: str
+    nda_type: str = "MUTUAL"
+    purpose: str = "vendor_evaluation"
+    requester_name: str = "Sam Carter"
+    requester_email: str = "sam.carter@northwind.example"
+    body_text: str
+
+
+class DecideChangeIn(BaseModel):
+    action: str                            # "approve" | "reject" | "edit"
+    user_id: str | None = None
+    edited_after_text: str | None = None   # required when action == "edit"
+
+
 # ————————————————————————— outbound —————————————————————————
 class ClauseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -88,10 +103,36 @@ class RequestSummaryOut(BaseModel):
     open_steps: int
 
 
+class ProposedChangeOut(BaseModel):
+    id: str
+    ordinal: int
+    section_no: str
+    heading: str
+    finding: str
+    rule_key: str | None
+    before_text: str
+    after_text: str
+    rationale: str
+    checks: list[dict]
+    confidence: float | None
+    triggered_rung: str
+    decision: str
+
+
+class ReviewOut(BaseModel):
+    id: str
+    status: str
+    summary: dict
+    changes: list[ProposedChangeOut]
+    counter_markdown: str
+    required_rungs: list[str]
+
+
 class RequestDetailOut(RequestSummaryOut):
     triage_reasons: list[str]
     document: DocumentOut | None
     ladder: LadderOut | None
+    review: ReviewOut | None
     timeline: list[TimelineEventOut]
 
 

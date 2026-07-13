@@ -120,10 +120,18 @@ def _timeline(db: Session, request_id: str) -> list[dict]:
 
 
 def _open_steps(db: Session, request_id: str) -> int:
+    """Open work items: pending ladder steps (outbound) + pending proposed
+    changes (inbound)."""
+    from ..services.redline import latest_run
+
+    count = 0
     ladder = ladder_for_request(db, request_id)
-    if ladder is None:
-        return 0
-    return sum(1 for s in ladder.steps if s.status == StepStatus.PENDING)
+    if ladder is not None:
+        count += sum(1 for s in ladder.steps if s.status == StepStatus.PENDING)
+    run = latest_run(db, request_id)
+    if run is not None:
+        count += sum(1 for c in run.changes if c.decision == "PENDING")
+    return count
 
 
 def _summary(db: Session, r: Request) -> dict:
@@ -203,6 +211,39 @@ def _ladder_out(db: Session, request_id: str) -> dict | None:
     return {"id": ladder.id, "status": ladder.status, "steps": steps}
 
 
+def _review_out(db: Session, r: Request) -> dict | None:
+    from ..services.redline import build_counter_markdown, latest_run, required_rungs
+
+    run = latest_run(db, r.id)
+    if run is None:
+        return None
+    return {
+        "id": run.id,
+        "status": run.status,
+        "summary": run.summary or {},
+        "changes": [
+            {
+                "id": c.id,
+                "ordinal": c.ordinal,
+                "section_no": c.section_no,
+                "heading": c.heading,
+                "finding": c.finding,
+                "rule_key": c.rule_key,
+                "before_text": c.before_text,
+                "after_text": c.after_text,
+                "rationale": c.rationale,
+                "checks": c.checks or [],
+                "confidence": c.confidence,
+                "triggered_rung": c.triggered_rung,
+                "decision": c.decision,
+            }
+            for c in run.changes
+        ],
+        "counter_markdown": build_counter_markdown(db, r, run),
+        "required_rungs": required_rungs(run),
+    }
+
+
 def _detail(db: Session, r: Request) -> dict:
     base = _summary(db, r)
     base.update(
@@ -210,6 +251,7 @@ def _detail(db: Session, r: Request) -> dict:
             "triage_reasons": r.triage_reasons or [],
             "document": _document_out(db, r),
             "ladder": _ladder_out(db, r.id),
+            "review": _review_out(db, r),
             "timeline": _timeline(db, r.id),
         }
     )

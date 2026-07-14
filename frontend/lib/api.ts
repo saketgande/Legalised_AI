@@ -122,6 +122,8 @@ export type SlaLeg = {
   breached_during_leg: boolean;
 };
 
+export type EditorGrounding = { rule_key: string; heading: string; preferred: string; url: string };
+
 export type TabularDoc = {
   request_id: string;
   ref: string;
@@ -463,6 +465,49 @@ export const api = {
     }).then(j<{ token: string; user: AuthUser }>),
 
   me: () => fetch(`${BASE}/api/auth/me`, { headers: H(), cache: "no-store" }).then(j<AuthUser>),
+
+  // drafting editor — playbook-grounded draft/revise stream
+  editorDraft: async (
+    instruction: string,
+    selection: string,
+    handlers: { onGrounding: (g: EditorGrounding[]) => void; onDelta: (t: string) => void; onDone?: () => void },
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/api/editor/draft`, {
+      method: "POST",
+      headers: H({ "content-type": "application/json" }),
+      body: JSON.stringify({ instruction, selection }),
+    });
+    if (res.status === 401) {
+      setToken(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) window.location.href = "/login";
+      throw new AuthError("unauthenticated");
+    }
+    if (!res.ok || !res.body) {
+      let msg = await res.text();
+      try { msg = JSON.parse(msg).detail ?? msg; } catch {}
+      throw new Error(msg || "draft failed");
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: { type: string; grounding?: EditorGrounding[]; text?: string };
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "grounding") handlers.onGrounding(evt.grounding || []);
+        else if (evt.type === "delta") handlers.onDelta(evt.text || "");
+        else if (evt.type === "done") handlers.onDone?.();
+      }
+    }
+  },
 
   // tabular review — document grid
   tabularDocuments: () => fetch(`${BASE}/api/tabular/documents`, { cache: "no-store", headers: H() })

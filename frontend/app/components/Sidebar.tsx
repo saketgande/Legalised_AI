@@ -11,18 +11,25 @@ type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
-    label: "Workspace",
+    label: "Work",
     items: [
-      { href: "/", label: "Mission Control", perm: null, gl: "◎", c: C.em },
-      { href: "/assistant", label: "Assistant", perm: "request:read_all", gl: "◆", c: C.em },
-      { href: "/tabular", label: "Tabular Review", perm: "request:read_all", gl: "▦", c: C.tl },
-      { href: "/editor", label: "Editor", perm: "request:read_all", gl: "✎", c: C.am },
-      { href: "/agent", label: "Agent", perm: "request:read_all", gl: "◈", c: C.pp },
+      { href: "/", label: "Home", perm: null, gl: "◎", c: C.em },  // the supervisor feed / daily brief
       { href: "/inbox", label: "Legal Intake", perm: "request:read_all", gl: "◆", c: C.cy },
       { href: "/cockpit", label: "Triage Cockpit", perm: "request:read_all", gl: "◈", c: C.em },
       { href: "/workspace", label: "Ops Workspace", perm: "request:read_all", gl: "▦", c: C.pp },
       { href: "/contracts", label: "Contracts", perm: "request:read_all", gl: "▤", c: C.bl },
       { href: "/sla", label: "SLA & Operations", perm: "request:read_all", gl: "◉", c: C.am },
+    ],
+  },
+  {
+    // The AI surfaces — docked on every matter (the Copilot), and available here
+    // standalone for cross-matter work.
+    label: "AI tools",
+    items: [
+      { href: "/assistant", label: "Assistant", perm: "request:read_all", gl: "◆", c: C.em },
+      { href: "/tabular", label: "Tabular Review", perm: "request:read_all", gl: "▦", c: C.tl },
+      { href: "/editor", label: "Editor", perm: "request:read_all", gl: "✎", c: C.am },
+      { href: "/agent", label: "Agent", perm: "request:read_all", gl: "◈", c: C.pp },
     ],
   },
   {

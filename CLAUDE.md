@@ -338,6 +338,7 @@ Each entry landed as one commit, demo green at every step.
 
 | Commit | What |
 |---|---|
+| `d2a5701` | **Phase 2 — second CONTRACT engine**: type-scoped playbooks (one default per type, schema-enforced), DPA type + seeded 9-rule playbook, type gate (non-NDA never AUTO), rule-derived clause taxonomy, typed intake surfaces; 3-pass adversarial review, all findings fixed (DPA renewal 500, NDA-policy leak into DPA checks, advice/contract boundary, mailbox playbook guard, email/chat DPA detection) |
 | `2fa3ee6` | Fix 24 review findings — draft-leak gate, semantic-aware ladder, org scoping, routing hardening, queue-ops permissions |
 | `843d88a` | **Intake platform**: request-type catalog + ADVICE resolution engine, routing rules + dry-run, playbook fallback/walk-away ladders, obligations, ⌘K + single-key triage + snooze + saved views + bulk, type-to-confirm |
 | `ca40293` | Fix CLM review findings — idempotent renewal (unique index + atomic link), non-destructive renew errors, SEED-channel SLA isolation |

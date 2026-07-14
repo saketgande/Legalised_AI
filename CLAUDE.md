@@ -101,14 +101,41 @@ must keep working end-to-end at every checkpoint.
   index + atomic link, non-destructive renew errors, SLA-KPI isolation of demo
   contracts).
 
+### ✅ Also done (the intake-platform slice, commits `843d88a` + `2fa3ee6`)
+- **Request-type catalog** — `/new` is a "What do you need from legal?" picker;
+  6 seeded org-scoped types. CONTRACT types run the CLM engine; ADVICE types
+  run the second resolution engine.
+- **ADVICE resolution engine** — triage → assign → AI-drafted answer as a
+  governed PENDING proposal (`resolution_draft`, reviewer-eyes-only — gated in
+  `_detail`) → lawyer approves/edits → `request.approved` ledger anchor →
+  requester sees the answer on a 3-stage tracker. Chat + email classify to it.
+- **Routing rules** — admin WHEN→THEN rows (`/admin/routing`) with dry-run,
+  which-rule-fired stamping, fire-time assignee re-validation; rule-escalated
+  AUTO requests ladder on the fired rules.
+- **Playbook position ladders** — per-rule fallbacks (each with an approval
+  rung) + walk-away lines; the redline engine emits ACCEPTABLE_FALLBACK /
+  walk-away-breach findings. The heuristic ladder abstains whenever a semantic
+  check contributed to the deviation — numbers never bless prose breaches.
+- **Obligations** — extracted deterministically at execution; unique on
+  (request, kind); surfaced in the registry with audited mark-done.
+- **Triage power UX** — ⌘K palette, j/k/enter/x/m/s keys, snooze, My queue,
+  saved views, bulk ops (queue ops = review:decide OR intake:manage, mirrored
+  in UI affordances).
+- **Type-to-confirm** on send-to-counterparty and rule delete.
+
 ### ⏳ Not yet built (next slices)
-1. **Real DocuSign** — the `send → executed` step is stubbed. The seam
+1. **Phase 2 — second CONTRACT engine.** Only NDA runs the full
+   draft→redline→sign→file loop; vendor/MSA/DPA are ADVICE-tracked today.
+   Generalizing means: type-scoped playbooks (+ resolver), per-type clause
+   taxonomy (derive keywords from the playbook's own rules instead of the
+   NDA-hardcoded `CLAUSE_KEYWORDS`), per-type intake forms, per-type triage.
+2. **Real DocuSign** — the `send → executed` step is stubbed. The seam
    (`get_esign_client()`, the HMAC webhook) is in place; wiring a real provider
    is the natural productionize step.
-2. **Design sweep** of the older surfaces (`/inbound`, `/chat`, `/email-sim`,
+3. **Design sweep** of the older surfaces (`/inbound`, `/chat`, `/email-sim`,
    `/admin`, `/admin/playbook`, `/login`) to match the redesigned core.
-3. **OCR for scanned PDFs** — image-only PDFs error with a clear message today.
-4. **M365 Graph email polling** — IMAP polling covers the need; a Graph-native
+4. **OCR for scanned PDFs** — image-only PDFs error with a clear message today.
+5. **M365 Graph email polling** — IMAP polling covers the need; a Graph-native
    poller would call the same intake adapter per message (no pipeline change).
 
 ---
@@ -285,6 +312,8 @@ Each entry landed as one commit, demo green at every step.
 
 | Commit | What |
 |---|---|
+| `2fa3ee6` | Fix 24 review findings — draft-leak gate, semantic-aware ladder, org scoping, routing hardening, queue-ops permissions |
+| `843d88a` | **Intake platform**: request-type catalog + ADVICE resolution engine, routing rules + dry-run, playbook fallback/walk-away ladders, obligations, ⌘K + single-key triage + snooze + saved views + bulk, type-to-confirm |
 | `ca40293` | Fix CLM review findings — idempotent renewal (unique index + atomic link), non-destructive renew errors, SEED-channel SLA isolation |
 | `bf869c3` | **CLM half**: contract registry + renewal tracking (`/contracts`, `executed_at`/`expires_at`/`renewed_from_id`, ledger backfill) |
 | `151be19` | Fix SLA review findings — ledger-anchored cycle time, reconciling in-flight breakdown, unit formatting |

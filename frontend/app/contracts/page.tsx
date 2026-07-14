@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { api, type ContractRegistry, type ContractRow, type Obligation } from "../../lib/api";
 
 function fmtDate(iso: string | null): string {
@@ -50,14 +50,18 @@ export default function ContractRegistryPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [renewing, setRenewing] = useState<string | null>(null);
   const [openRow, setOpenRow] = useState<string | null>(null);           // expanded contract
-  const [obls, setObls] = useState<Record<string, Obligation[]>>({});    // per-contract obligations
+  // per-contract obligations: undefined = loading, "error" = fetch failed
+  const [obls, setObls] = useState<Record<string, Obligation[] | "error">>({});
 
   async function toggleRow(id: string) {
     if (openRow === id) { setOpenRow(null); return; }
     setOpenRow(id);
-    if (!obls[id]) {
-      try { setObls((m) => ({ ...m, [id]: [] })); const o = await api.contractObligations(id); setObls((m) => ({ ...m, [id]: o })); }
-      catch { /* leave empty */ }
+    setObls((m) => { const { [id]: _drop, ...rest } = m; return rest; });  // show loading
+    try {
+      const o = await api.contractObligations(id);
+      setObls((m) => ({ ...m, [id]: o }));
+    } catch {
+      setObls((m) => ({ ...m, [id]: "error" }));
     }
   }
 
@@ -188,10 +192,11 @@ export default function ContractRegistryPage() {
               {shown.map((r) => {
                 const act = r.status === "expired" || r.status === "expiring";
                 const open = openRow === r.id;
-                const rowObls = obls[r.id] || [];
+                const rowState = obls[r.id];
+                const rowObls = Array.isArray(rowState) ? rowState : [];
                 return (
-                  <>
-                    <tr key={r.id} className={r.status === "expired" ? "sev" : ""} style={{ cursor: "pointer" }}
+                  <Fragment key={r.id}>
+                    <tr className={r.status === "expired" ? "sev" : ""} style={{ cursor: "pointer" }}
                       onClick={() => toggleRow(r.id)}>
                       <td className="ref">{open ? "▾ " : "▸ "}{r.ref}</td>
                       <td className="cp">{r.counterparty}</td>
@@ -211,10 +216,12 @@ export default function ContractRegistryPage() {
                       </td>
                     </tr>
                     {open && (
-                      <tr key={`${r.id}-obl`}>
+                      <tr>
                         <td colSpan={7} style={{ background: "var(--surface-2)", padding: "10px 22px 14px" }}>
                           <div className="kicker" style={{ marginBottom: 4 }}>What this contract commits us to</div>
-                          {rowObls.length === 0 && <div className="faint" style={{ fontSize: 12.5, padding: "6px 0" }}>Loading obligations…</div>}
+                          {rowState === undefined && <div className="faint" style={{ fontSize: 12.5, padding: "6px 0" }}>Loading obligations…</div>}
+                          {rowState === "error" && <div className="notice warn" style={{ fontSize: 12.5 }}>Couldn&rsquo;t load obligations — close and re-open to retry.</div>}
+                          {Array.isArray(rowState) && rowState.length === 0 && <div className="faint" style={{ fontSize: 12.5, padding: "6px 0" }}>No obligations recorded for this contract.</div>}
                           {rowObls.map((o) => (
                             <div key={o.id} className="obl-row">
                               <span className="obl-kind">{o.kind.replace(/_/g, " ")}</span>
@@ -233,7 +240,7 @@ export default function ContractRegistryPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
               {shown.length === 0 && (

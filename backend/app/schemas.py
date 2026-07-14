@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ————————————————————————— inbound —————————————————————————
@@ -15,7 +15,7 @@ class CreateRequestIn(BaseModel):
     nda_type: str = "MUTUAL"          # MUTUAL | ONE_WAY
     purpose: str = "sales_evaluation"
     jurisdiction: str = "US"
-    term_months: int = 24
+    term_months: int = Field(24, ge=1, le=120)  # 0/blank would draft a nonsense term
     channel: str = "FORM"
     playbook_id: str | None = None    # null = the org's default playbook
 

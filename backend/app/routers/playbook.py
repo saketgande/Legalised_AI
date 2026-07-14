@@ -101,8 +101,10 @@ def _validate(payload: RuleIn) -> None:
     for i, fb in enumerate(payload.fallbacks):
         if not isinstance(fb, dict) or not str(fb.get("body", "")).strip():
             raise HTTPException(400, f"fallback #{i + 1} needs a body")
-        if fb.get("rung", "none") not in _VALID_RUNGS:
-            raise HTTPException(400, f"fallback #{i + 1} rung must be one of {sorted(_VALID_RUNGS)}")
+        # rung is required: the engine prices a missing rung at the full deviation
+        # rung, so an implicit value would surprise the author either way
+        if fb.get("rung") not in _VALID_RUNGS:
+            raise HTTPException(400, f"fallback #{i + 1} needs a rung — one of {sorted(_VALID_RUNGS)}")
 
 
 def _bump_version(db: Session, pb: Playbook) -> None:

@@ -32,7 +32,7 @@ from ..models import (
     User,
 )
 from ..config import settings
-from ..permissions import Permission, can
+from ..permissions import ASSIGNABLE_ROLES, Permission, can
 from ..schemas import (
     ApproveStepIn,
     AssignIn,
@@ -79,11 +79,35 @@ def _owns(db: Session, user: User, r: Request) -> bool:
 
 
 def _authorize_read(db: Session, user: User, r: Request) -> None:
+    if r.org_id != user.org_id:
+        raise HTTPException(404, "request not found")  # cross-org ids don't exist for you
     if can(user.role, Permission.REQUEST_READ_ALL):
         return
     if can(user.role, Permission.REQUEST_READ_OWN) and _owns(db, user, r):
         return
     raise HTTPException(403, "not permitted to read this request")
+
+
+def _authorize_org_write(user: User, r: Request | None) -> Request:
+    """Shared org guard for mutation endpoints: foreign-org ids read as 404."""
+    if r is None or r.org_id != user.org_id:
+        raise HTTPException(404, "request not found")
+    return r
+
+
+def _require_queue_ops(user: User) -> None:
+    """Queue operations (assign / snooze / bulk) are for reviewers AND intake
+    managers — legal_ops runs the queue without holding review:decide."""
+    if not (can(user.role, Permission.REVIEW_DECIDE) or can(user.role, Permission.INTAKE_MANAGE)):
+        raise HTTPException(403, "not permitted to manage the queue")
+
+
+def _validate_assignee(db: Session, user: User, user_id: str) -> User:
+    assignee = db.get(User, user_id)
+    if assignee is None or assignee.org_id != user.org_id or assignee.suspended \
+            or assignee.role not in ASSIGNABLE_ROLES:
+        raise HTTPException(400, "assignee must be an active legal-staff user in your organisation")
+    return assignee
 
 
 def _get_or_create_person(db: Session, org_id: str, name: str, email: str) -> Person:
@@ -295,7 +319,10 @@ def _review_out(db: Session, r: Request) -> dict | None:
     }
 
 
-def _detail(db: Session, r: Request) -> dict:
+def _detail(db: Session, r: Request, user: User | None = None) -> dict:
+    # The AI's PENDING answer proposal is reviewer-eyes-only: it must never reach
+    # the requester before approval. Default (no user passed) is hide.
+    show_draft = user is not None and can(user.role, Permission.REVIEW_DECIDE)
     base = _summary(db, r)
     base.update(
         {
@@ -305,7 +332,7 @@ def _detail(db: Session, r: Request) -> dict:
             "review": _review_out(db, r),
             "timeline": _timeline(db, r.id),
             "details": r.details,
-            "resolution_draft": r.resolution_draft,
+            "resolution_draft": r.resolution_draft if show_draft else None,
             "resolution_note": r.resolution_note,
         }
     )
@@ -366,16 +393,11 @@ def create_advice_request(
 @router.post("/requests/{request_id}/assign", response_model=RequestDetailOut)
 def assign_request(
     request_id: str, payload: AssignIn,
-    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+    user: User = Depends(current_user), db: Session = Depends(get_db),
 ):
-    r = db.get(Request, request_id)
-    if r is None or r.org_id != user.org_id:
-        raise HTTPException(404, "request not found")
-    assignee = None
-    if payload.user_id:
-        assignee = db.get(User, payload.user_id)
-        if assignee is None or assignee.org_id != user.org_id or assignee.suspended:
-            raise HTTPException(400, "assignee must be an active user in your organisation")
+    _require_queue_ops(user)
+    r = _authorize_org_write(user, db.get(Request, request_id))
+    assignee = _validate_assignee(db, user, payload.user_id) if payload.user_id else None
     before = r.assigned_to_user_id
     r.assigned_to_user_id = assignee.id if assignee else None
     record_audit(
@@ -387,19 +409,18 @@ def assign_request(
     )
     db.commit()
     db.refresh(r)
-    return _detail(db, r)
+    return _detail(db, r, user)
 
 
 @router.post("/requests/{request_id}/snooze", response_model=RequestDetailOut)
 def snooze_request(
     request_id: str, payload: SnoozeIn,
-    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+    user: User = Depends(current_user), db: Session = Depends(get_db),
 ):
     from datetime import timedelta
 
-    r = db.get(Request, request_id)
-    if r is None or r.org_id != user.org_id:
-        raise HTTPException(404, "request not found")
+    _require_queue_ops(user)
+    r = _authorize_org_write(user, db.get(Request, request_id))
     if payload.hours is not None and not (1 <= payload.hours <= 24 * 30):
         raise HTTPException(400, "snooze must be between 1 hour and 30 days")
     if payload.hours is None:
@@ -415,7 +436,7 @@ def snooze_request(
     )
     db.commit()
     db.refresh(r)
-    return _detail(db, r)
+    return _detail(db, r, user)
 
 
 @router.post("/requests/{request_id}/resolve", response_model=RequestDetailOut)
@@ -447,27 +468,27 @@ def resolve_advice(
     )
     db.commit()
     db.refresh(r)
-    return _detail(db, r)
+    return _detail(db, r, user)
 
 
 @router.post("/requests/bulk")
 def bulk_action(
     payload: BulkActionIn,
-    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+    user: User = Depends(current_user), db: Session = Depends(get_db),
 ):
     """Bulk queue operations: assign / snooze / unsnooze. Audited per request;
     unknown or foreign ids are skipped and reported, never a partial mystery."""
     from datetime import timedelta
 
+    _require_queue_ops(user)
     if payload.action not in ("assign", "snooze", "unsnooze"):
         raise HTTPException(400, "action must be assign, snooze, or unsnooze")
     if len(payload.ids) == 0 or len(payload.ids) > 100:
         raise HTTPException(400, "between 1 and 100 request ids")
-    assignee = None
-    if payload.action == "assign" and payload.user_id:
-        assignee = db.get(User, payload.user_id)
-        if assignee is None or assignee.org_id != user.org_id or assignee.suspended:
-            raise HTTPException(400, "assignee must be an active user in your organisation")
+    if payload.action == "assign" and not payload.user_id:
+        # mass-unassign must be an explicit intent, not a missing field
+        raise HTTPException(400, "assign requires user_id")
+    assignee = _validate_assignee(db, user, payload.user_id) if payload.action == "assign" else None
     if payload.action == "snooze" and (payload.hours is None or not (1 <= payload.hours <= 24 * 30)):
         raise HTTPException(400, "snooze hours must be between 1 and 720")
 
@@ -501,11 +522,14 @@ def list_requests(
     state: str | None = None, lane: str | None = None,
     user: User = Depends(current_user), db: Session = Depends(get_db),
 ):
-    stmt = select(Request).order_by(Request.created_at.desc())
-    if state:
-        stmt = stmt.where(Request.state == RequestState(state))
-    if lane:
-        stmt = stmt.where(Request.lane == Lane(lane))
+    stmt = select(Request).where(Request.org_id == user.org_id).order_by(Request.created_at.desc())
+    try:
+        if state:
+            stmt = stmt.where(Request.state == RequestState(state))
+        if lane:
+            stmt = stmt.where(Request.lane == Lane(lane))
+    except ValueError:
+        raise HTTPException(400, "unknown state or lane filter")
     rows = db.execute(stmt).scalars().all()
 
     if can(user.role, Permission.REQUEST_READ_ALL):
@@ -523,7 +547,7 @@ def get_request(request_id: str, user: User = Depends(current_user), db: Session
     if r is None:
         raise HTTPException(404, "request not found")
     _authorize_read(db, user, r)
-    return _detail(db, r)
+    return _detail(db, r, user)
 
 
 @router.get("/requests/{request_id}/status", response_model=RequesterStatusOut)
@@ -608,12 +632,11 @@ def approve_step(
     step = db.get(ApprovalStep, step_id)
     if step is None:
         raise HTTPException(404, "approval step not found")
+    ladder = step.ladder
+    r = _authorize_org_write(user, db.get(Request, ladder.request_id))  # foreign-org step -> 404
     if step.status != StepStatus.PENDING:
         raise HTTPException(409, "step already decided")
     assert_can_clear_rung(user, step.rung)  # rung-gated: seniority enforced
-
-    ladder = step.ladder
-    r = db.get(Request, ladder.request_id)
 
     step.status = StepStatus.APPROVED
     step.decided_by = user.id
@@ -643,11 +666,13 @@ def send_request(
     request_id: str,
     user: User = Depends(require(Permission.REQUEST_SEND)), db: Session = Depends(get_db),
 ):
-    r = db.get(Request, request_id)
-    if r is None:
-        raise HTTPException(404, "request not found")
+    r = _authorize_org_write(user, db.get(Request, request_id))
     if r.state != RequestState.APPROVED:
         raise HTTPException(409, f"request must be APPROVED to send (is {r.state.value})")
+    if _type_info(db, r)[1] == "ADVICE":
+        # a resolved question has nothing to sign — sending would corrupt its
+        # state machine (and re-open resolve, double-writing the SLA anchor)
+        raise HTTPException(409, "advice requests are resolved with an answer, not sent for signature")
     cp = db.get(Counterparty, r.counterparty_id)
     requester = db.get(Person, r.requester_id)
 
@@ -694,9 +719,7 @@ def simulate_signature(
     user: User = Depends(require(Permission.REQUEST_SEND)), db: Session = Depends(get_db),
 ):
     """Stands in for the counterparty countersigning (dev only)."""
-    r = db.get(Request, request_id)
-    if r is None:
-        raise HTTPException(404, "request not found")
+    r = _authorize_org_write(user, db.get(Request, request_id))
     if r.state != RequestState.OUT_FOR_SIGNATURE:
         raise HTTPException(409, f"request is not out for signature (is {r.state.value})")
     if r.esign_provider == "docusign":

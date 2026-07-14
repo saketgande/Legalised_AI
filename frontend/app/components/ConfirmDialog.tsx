@@ -32,7 +32,9 @@ export function ConfirmDialog({
   }, [open, onClose]);
 
   if (!open) return null;
-  const armed = typed.trim() === phrase;
+  // trim both sides: a counterparty saved as "Umbrella Corp " must not make
+  // the confirm impossible to arm (typed input can never end in the space)
+  const armed = typed.trim() === phrase.trim();
 
   return (
     <div className="cp-overlay" onClick={onClose}>

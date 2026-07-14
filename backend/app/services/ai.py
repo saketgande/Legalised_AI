@@ -79,12 +79,17 @@ def _guess_intake(text: str) -> IntakeParse:
 
     t = text.lower()
     intent = "outbound"
+    is_question = t.rstrip().endswith("?") or any(m in t for m in _ADVICE_MARKERS)
+    mentions_contract = "nda" in t or "non-disclosure" in t or "agreement" in t
+    # a contract mention only means "draft one" when there's a drafting ask —
+    # "what happens if we breach the agreement?" is a question, not an order
+    wants_drafting = mentions_contract and any(
+        v in t for v in ("need", "get ", "draft", "send", "sign", "request", "set up",
+                         "put in place", "prepare", "want")
+    )
     if any(w in t for w in ("review their", "they sent", "counterparty sent", "their paper", "sent us", "sent over", "attached")):
         intent = "inbound"
-    # a question with no NDA/contract ask reads as an advice request
-    elif "nda" not in t and "non-disclosure" not in t and "agreement" not in t and (
-        t.rstrip().endswith("?") or any(m in t for m in _ADVICE_MARKERS)
-    ):
+    elif is_question and not wants_drafting:
         intent = "advice"
 
     counterparty = None
@@ -138,13 +143,21 @@ class HeuristicAIClient:
             )
         return None  # abstain — no model to judge prose
 
-    def place_on_ladder(self, clause_text: str, rule, ctx: dict) -> "LadderVerdict | None":
+    def place_on_ladder(self, clause_text: str, rule, ctx: dict,
+                        semantic_deviation: bool = False) -> "LadderVerdict | None":
         """Deterministic fallback placement for numeric clause types: if a
-        fallback body carries a parseable duration, compare it to the
-        counterparty's number. Prose fallbacks and walk-away judgement need a
-        model — abstain (the finding stays a plain DEVIATION)."""
+        fallback body carries exactly one parseable duration, compare it to the
+        counterparty's number. Abstains when a SEMANTIC check contributed to the
+        deviation (a matching number cannot bless prose the semantic layer
+        flagged — e.g. a cap with no confidentiality carve-out), on conditional
+        multi-duration fallbacks, and on prose/walk-away judgement — those need
+        a model, and the finding stays a plain DEVIATION."""
+        import re as _re
+
         from .redline import extract_months  # local import to avoid a cycle
 
+        if semantic_deviation:
+            return None  # numbers can't overrule a semantic breach
         fallbacks = rule.fallbacks or []
         if not fallbacks or rule.clause_type not in ("term", "limitation_of_liability"):
             return None
@@ -152,9 +165,17 @@ class HeuristicAIClient:
         if theirs is None:
             return None
         for i, fb in enumerate(fallbacks):
-            floor = extract_months(str(fb.get("body", "")))
-            if floor is None:
+            body = str(fb.get("body", ""))
+            # normalise every duration in the body to months; a fallback whose
+            # durations DISAGREE is conditional prose ("60mo for trade secrets,
+            # 24mo otherwise") — too subtle for numbers alone, skip it
+            vals = [
+                int(n) * (12 if unit.startswith("year") else 1)
+                for n, unit in _re.findall(r"\(?(\d+)\)?\s*(months?|years?)", body.lower())
+            ]
+            if len(set(vals)) != 1:
                 continue
+            floor = vals[0]
             # term: their duration acceptable if <= fallback ceiling;
             # liability: their cap acceptable if >= fallback floor
             ok = theirs <= floor if rule.clause_type == "term" else theirs >= floor
@@ -247,10 +268,13 @@ class ClaudeAIClient:
         except (TypeError, ValueError):
             return self._fallback.parse_intake(text)
 
-    def place_on_ladder(self, clause_text: str, rule, ctx: dict) -> LadderVerdict | None:
+    def place_on_ladder(self, clause_text: str, rule, ctx: dict,
+                        semantic_deviation: bool = False) -> LadderVerdict | None:
         """Ask the model where the counterparty clause sits on the position
         ladder: preferred / a named fallback / plain deviation / across the
-        walk-away line. Falls back to the deterministic heuristic on failure."""
+        walk-away line. (The model weighs semantics itself, so
+        ``semantic_deviation`` only matters for the heuristic fallback.)
+        Falls back to the deterministic heuristic on failure."""
         fallbacks = rule.fallbacks or []
         if not fallbacks and not (rule.walk_away_text or "").strip():
             return None
@@ -272,7 +296,7 @@ class ClaudeAIClient:
         )
         data = self._call(_SYSTEM, user)
         if not data or data.get("position") not in ("preferred", "fallback", "deviation", "walk_away"):
-            return self._fallback.place_on_ladder(clause_text, rule, ctx)
+            return self._fallback.place_on_ladder(clause_text, rule, ctx, semantic_deviation)
         idx = data.get("fallback_index")
         try:
             idx = int(idx) if idx is not None else None
@@ -280,9 +304,12 @@ class ClaudeAIClient:
                 idx = None
         except (TypeError, ValueError):
             idx = None
+        position = str(data["position"])
+        if position == "fallback" and idx is None:
+            position = "deviation"  # a fallback claim with no valid index is not a match
         return LadderVerdict(
-            position=str(data["position"]),
-            fallback_index=idx if data["position"] == "fallback" else None,
+            position=position,
+            fallback_index=idx if position == "fallback" else None,
             note=str(data.get("note", "")).strip()[:200],
             confidence=max(0.0, min(1.0, float(data.get("confidence", 0.7) or 0.7))),
             model=self.model,

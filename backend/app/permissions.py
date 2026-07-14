@@ -44,6 +44,10 @@ RUNG_RANK: dict[str, int] = {
     "gc": 6,
 }
 
+# roles legal work may be assigned to — enforced at every assignment write
+# (picker, direct assign, bulk, routing-rule authoring)
+ASSIGNABLE_ROLES = {"paralegal", "attorney", "vp_legal", "gc", "legal_ops", "admin"}
+
 _ALL = set(Permission)
 _STAFF = {
     Permission.REQUEST_CREATE, Permission.REQUEST_READ_ALL,

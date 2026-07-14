@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -39,8 +40,9 @@ def _clause_types_of(db: Session, r: Request) -> set[str]:
 
 
 def extract_obligations_for_contract(db: Session, r: Request) -> list[Obligation]:
-    """Create the contract's obligation rows at execution. Safe to call twice —
-    a contract that already has obligations is skipped."""
+    """Create the contract's obligation rows at execution. Idempotent twice over:
+    the read-guard covers the common case, and the (request_id, kind) unique
+    index arbitrates concurrent callers — the loser rolls back and yields."""
     existing = db.execute(
         select(Obligation.id).where(Obligation.request_id == r.id)
     ).first()
@@ -73,8 +75,14 @@ def extract_obligations_for_contract(db: Session, r: Request) -> list[Obligation
             due_at=None,  # on-demand duty, no fixed date
             source="RET",
         ))
-    db.add_all(obligations)
-    db.flush()
+    # Savepoint so a lost race only rolls back the obligation insert — never the
+    # caller's pending state changes (e.g. the EXECUTED transition on the request).
+    try:
+        with db.begin_nested():
+            db.add_all(obligations)
+            db.flush()
+    except IntegrityError:
+        return []  # a concurrent caller won the race — yield to its rows
     for o in obligations:
         record_audit(
             db, org_id=r.org_id, action="obligation.created", resource_type="Obligation",

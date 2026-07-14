@@ -295,12 +295,16 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
             finding = "DEVIATION"
             rung = rule.deviation_rung
             rationale = rule.rationale or f"Outside our position on {rule.heading.lower()}."
-            ladder = ai.place_on_ladder(clause.body_text, rule, ctx) if (
+            semantic_flagged = any(
+                ch.get("kind") == "SEMANTIC" and not ch.get("passed") for ch in checks
+            )
+            ladder = ai.place_on_ladder(clause.body_text, rule, ctx, semantic_flagged) if (
                 (rule.fallbacks or []) or (rule.walk_away_text or "").strip()
             ) else None
             if ladder is not None:
                 checks.append({
-                    "kind": "SEMANTIC", "name": "position_ladder", "passed": ladder.position == "fallback",
+                    "kind": "SEMANTIC", "name": "position_ladder",
+                    "passed": ladder.position == "fallback" and ladder.fallback_index is not None,
                     "detail": f"{ladder.position}: {ladder.note}", "model": ladder.model,
                 })
                 if ladder.position == "fallback" and ladder.fallback_index is not None:
@@ -355,8 +359,11 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
     for c in changes:
         key = c.finding.lower()
         summary[key] = summary.get(key, 0) + 1
+    # compliant = clause types we actually reviewed against a rule and cleared;
+    # rule-less (NOVEL) types are unreviewed, not compliant
+    reviewed_types = seen_types & set(rule_by_type.keys())
     summary["compliant"] = max(
-        0, len(seen_types) - summary["deviation"] - summary.get("acceptable_fallback", 0)
+        0, len(reviewed_types) - summary["deviation"] - summary.get("acceptable_fallback", 0)
     )
     run.summary = summary
     db.flush()
@@ -397,7 +404,17 @@ def build_counter_markdown(db: Session, request: Request, run: ReviewRun) -> str
         heading = clause.heading or (change.heading if change else "Clause")
         lines.append(f"## {n}. {heading}")
         lines.append("")
-        if change and change.finding == "DEVIATION" and change.decision.startswith("APPROVED"):
+        # apply the approved redline when it actually changes their language —
+        # covers DEVIATIONs and any approve-with-edit on fallback/novel findings
+        # (a lawyer's vetted edit must never be silently dropped from the counter)
+        applies = (
+            change is not None
+            and change.decision.startswith("APPROVED")
+            and change.after_text.strip()
+            and change.after_text.strip() != clause.body_text.strip()
+            and (change.finding == "DEVIATION" or change.decision == "APPROVED_WITH_EDIT")
+        )
+        if applies:
             lines.append(f"~~{clause.body_text}~~")
             lines.append("")
             lines.append(f"**{change.after_text}**")

@@ -194,8 +194,15 @@ def create_outbound(
     )
     from .routing import apply_routing_rules
 
-    apply_routing_rules(db, r)  # admin rules run after triage; may escalate/assign
-    result.lane = r.lane        # a rule may have forced ESCALATED
+    triaged_lane = result.lane
+    fired = apply_routing_rules(db, r)  # admin rules run after triage; may escalate/assign
+    result.lane = r.lane                # a rule may have forced ESCALATED
+    # When a rule escalates a request triage had cleared for AUTO, the ladder must
+    # cite the RULE, not the triage lines (which are pro-approval justifications —
+    # keyword-mapping those would demand GC sign-off with nonsense step text).
+    ladder_reasons = list(result.reasons)
+    if triaged_lane == Lane.AUTO and result.lane != Lane.AUTO:
+        ladder_reasons = fired
     generate_outbound_nda(db, r)
     r.state = RequestState.DRAFTED
     doc = db.get(Document, r.document_id)
@@ -212,7 +219,7 @@ def create_outbound(
             actor_type=ActorType.AGENT, actor_label="Policy Engine", metadata={"reasons": result.reasons},
         )
     else:
-        build_ladder(db, r, result.reasons)
+        build_ladder(db, r, ladder_reasons)
         r.state = RequestState.IN_REVIEW
         record_audit(
             db, org_id=org, action="review.requested", resource_type="Request", resource_id=r.id,

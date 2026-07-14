@@ -41,7 +41,7 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
         <div>
           <div style={{ fontWeight: 650, fontSize: 15 }}>{s.headline}</div>
           <div className="muted" style={{ fontSize: 13.5, marginTop: 2 }}>{s.detail}</div>
-          {ETA[s.stage_index] && !done && (
+          {!advice && ETA[s.stage_index] && !done && (
             <span className="pill accent" style={{ marginTop: 10 }}>◷ {ETA[s.stage_index]}</span>
           )}
         </div>

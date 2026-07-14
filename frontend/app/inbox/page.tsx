@@ -34,7 +34,10 @@ type SavedView = { name: string; filter: Filter; q: string; type: string };
 const VIEWS_KEY = "fd-inbox-views";
 
 export default function Inbox() {
-  const { user } = useAuth();
+  const { user, has } = useAuth();
+  // queue operations (assign/snooze/bulk) need review:decide or intake:manage —
+  // mirror the API gate so affordances don't silently no-op for other roles
+  const canQueueOps = has("review:decide") || has("intake:manage");
   const [rows, setRows] = useState<RequestSummary[]>([]);
   const [filter, setFilter] = useState<Filter>("all");
   const [typeFilter, setTypeFilter] = useState<string>("");
@@ -50,7 +53,10 @@ export default function Inbox() {
   useEffect(() => {
     load();
     api.assignableUsers().then(setStaff).catch(() => setStaff([]));
-    try { setViews(JSON.parse(localStorage.getItem(VIEWS_KEY) || "[]")); } catch {}
+    try {
+      const v = JSON.parse(localStorage.getItem(VIEWS_KEY) || "[]");
+      if (Array.isArray(v)) setViews(v);  // shape-check: corrupt storage must not crash the inbox
+    } catch {}
     const t = setInterval(load, 8000);
     return () => clearInterval(t);
   }, []);
@@ -92,23 +98,25 @@ export default function Inbox() {
 
   /* ————— single-key triage: j/k move · enter open · x select · m mine · s snooze ————— */
   const onKey = useCallback((e: KeyboardEvent) => {
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.metaKey || e.ctrlKey) return;
+    // bail when focus is on any interactive element — Enter on a focused filter
+    // button must not also open the cursor row
+    const el = e.target as HTMLElement | null;
+    if (el?.closest?.("input, textarea, select, button, a, summary") || e.metaKey || e.ctrlKey) return;
     const cur = shown[cursor];
     if (e.key === "j") setCursor((c) => Math.min(c + 1, shown.length - 1));
     else if (e.key === "k") setCursor((c) => Math.max(c - 1, 0));
     else if (e.key === "Enter" && cur) window.location.href = `/review/${cur.id}`;
-    else if (e.key === "x" && cur) {
+    else if (e.key === "x" && cur && canQueueOps) {
       setSel((s) => { const n = new Set(s); n.has(cur.id) ? n.delete(cur.id) : n.add(cur.id); return n; });
-    } else if (e.key === "m" && cur && user) {
+    } else if (e.key === "m" && cur && user && canQueueOps) {
       api.assignRequest(cur.id, user.id).then(load).catch(() => {});
-    } else if (e.key === "s" && cur) {
+    } else if (e.key === "s" && cur && canQueueOps) {
       api.snoozeRequest(cur.id, filter === "snoozed" ? null : 24).then(load).catch(() => {});
     } else if (e.key === "/") {
       e.preventDefault();
       searchRef.current?.focus();
     } else return;
-  }, [shown, cursor, user, filter]);
+  }, [shown, cursor, user, filter, canQueueOps]);
   useEffect(() => {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -156,7 +164,7 @@ export default function Inbox() {
             <h1>Triage queue</h1>
           </div>
           <span className="muted" style={{ fontSize: 12 }}>
-            <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>↵</kbd> open · <kbd>x</kbd> select · <kbd>m</kbd> mine · <kbd>s</kbd> snooze · <kbd>/</kbd> search
+            <kbd>j</kbd>/<kbd>k</kbd> move · <kbd>↵</kbd> open{canQueueOps && <> · <kbd>x</kbd> select · <kbd>m</kbd> mine · <kbd>s</kbd> snooze</>} · <kbd>/</kbd> search
           </span>
         </div>
       </div>
@@ -218,8 +226,10 @@ export default function Inbox() {
             <thead>
               <tr>
                 <th style={{ width: 30 }}>
-                  <input type="checkbox" checked={allShownSelected}
-                    onChange={() => setSel(allShownSelected ? new Set() : new Set(shown.map((r) => r.id)))} />
+                  {canQueueOps && (
+                    <input type="checkbox" checked={allShownSelected}
+                      onChange={() => setSel(allShownSelected ? new Set() : new Set(shown.map((r) => r.id)))} />
+                  )}
                 </th>
                 <th>Ref</th>
                 <th>Subject</th>
@@ -246,8 +256,10 @@ export default function Inbox() {
                       window.location.href = `/review/${r.id}`;
                     }}>
                     <td onClick={(e) => e.stopPropagation()}>
-                      <input type="checkbox" checked={sel.has(r.id)}
-                        onChange={() => setSel((s) => { const n = new Set(s); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })} />
+                      {canQueueOps && (
+                        <input type="checkbox" checked={sel.has(r.id)}
+                          onChange={() => setSel((s) => { const n = new Set(s); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })} />
+                      )}
                     </td>
                     <td className="ref">{r.ref}</td>
                     <td className="cp">

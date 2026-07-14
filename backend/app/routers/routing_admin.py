@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import ActorType, RequestPriority, RoutingRule, User
+from ..permissions import ASSIGNABLE_ROLES as _ASSIGNABLE_ROLES
 from ..permissions import Permission, can
 from ..security import current_user, require
 from ..services.audit import record_audit
@@ -23,8 +24,6 @@ from ..services.routing import preview_rule
 router = APIRouter(prefix="/api", tags=["routing"])
 
 _PRIORITIES = {p.value for p in RequestPriority}
-# roles that legal work can be assigned to
-_ASSIGNABLE_ROLES = {"paralegal", "attorney", "vp_legal", "gc", "legal_ops", "admin"}
 
 
 @router.get("/users/assignable")
@@ -98,8 +97,9 @@ def _validate(db: Session, org_id: str, payload: RuleIn) -> None:
         raise HTTPException(400, "SLA hours must be positive")
     if payload.set_assignee_user_id:
         assignee = db.get(User, payload.set_assignee_user_id)
-        if assignee is None or assignee.org_id != org_id or assignee.suspended:
-            raise HTTPException(400, "assignee must be an active user in your organisation")
+        if assignee is None or assignee.org_id != org_id or assignee.suspended \
+                or assignee.role not in _ASSIGNABLE_ROLES:
+            raise HTTPException(400, "assignee must be an active legal-staff user in your organisation")
     if not any([payload.match_type_key, payload.match_direction, payload.match_keyword,
                 payload.match_jurisdiction]):
         raise HTTPException(400, "at least one condition is required (a rule that matches everything is a policy, not a rule)")

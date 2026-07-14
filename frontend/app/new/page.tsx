@@ -109,7 +109,7 @@ function NdaForm({ onBack }: { onBack: () => void }) {
 
         <div className="field">
           <label>Confidentiality term (months)</label>
-          <input type="number" min={1} max={120} value={form.term_months}
+          <input type="number" required min={1} max={120} value={form.term_months}
             onChange={(e) => set("term_months", e.target.value)} style={{ maxWidth: 160 }} />
           <span className="hint">How long the confidentiality lasts.</span>
         </div>

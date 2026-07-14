@@ -182,9 +182,14 @@ def _ensure_demo_contracts() -> None:
                 db.add(requester)
                 db.flush()
             for ref, cp_name, ndatype, purpose, jx, term, executed in specs:
-                if db.execute(
+                existing = db.execute(
                     select(Request).where(Request.org_id == org.id, Request.ref == ref)
-                ).scalars().first():
+                ).scalars().first()
+                if existing is not None:
+                    # repair rows seeded before the SEED channel marker existed, so
+                    # ops_metrics stops counting them as live intake
+                    if existing.channel != "SEED":
+                        existing.channel = "SEED"
                     continue
                 cp = db.execute(
                     select(Counterparty).where(Counterparty.org_id == org.id, Counterparty.name == cp_name)
@@ -197,7 +202,11 @@ def _ensure_demo_contracts() -> None:
                     ref=ref, org_id=org.id, type="NDA", direction=Direction.OUTBOUND,
                     nda_type=ndatype, our_role=OurRole.BOTH, state=RequestState.FILED,
                     lane=Lane.AUTO, requester_id=requester.id, counterparty_id=cp.id,
-                    purpose=purpose, jurisdiction=jx, term_months=term, channel="FORM",
+                    purpose=purpose, jurisdiction=jx, term_months=term,
+                    # channel="SEED" marks these as pre-platform historical contracts: they
+                    # never went through intake, so ops_metrics excludes them from the SLA /
+                    # deflection / cycle-time KPIs (they'd otherwise read as instant auto-resolves).
+                    channel="SEED",
                     esign_provider="stub", esign_status="completed",
                     created_at=executed, updated_at=executed,
                     executed_at=executed, expires_at=add_months(executed, term),

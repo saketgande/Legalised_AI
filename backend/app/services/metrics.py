@@ -47,7 +47,11 @@ def _target(lane: Lane | None) -> int:
 def ops_metrics(db: Session, org_id: str) -> dict:
     now = datetime.now(timezone.utc)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    reqs = db.execute(select(Request).where(Request.org_id == org_id)).scalars().all()
+    # exclude pre-platform seeded contracts (channel="SEED") — they never went through
+    # intake, so counting them would report fictional instant auto-resolves.
+    reqs = db.execute(
+        select(Request).where(Request.org_id == org_id, Request.channel != "SEED")
+    ).scalars().all()
 
     # Resolution timestamp per request = earliest approval event in the append-only
     # audit ledger. Immutable, so (unlike updated_at) it never drifts as the request

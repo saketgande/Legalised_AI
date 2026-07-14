@@ -45,7 +45,8 @@ type Filter = "all" | "expiring" | "expired" | "active" | "renewed";
 
 export default function ContractRegistryPage() {
   const [d, setD] = useState<ContractRegistry | null>(null);
-  const [err, setErr] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);        // fatal load error
+  const [renewErr, setRenewErr] = useState<string | null>(null); // non-fatal renew error
   const [filter, setFilter] = useState<Filter>("all");
   const [renewing, setRenewing] = useState<string | null>(null);
 
@@ -59,12 +60,15 @@ export default function ContractRegistryPage() {
 
   async function renew(row: ContractRow) {
     setRenewing(row.id);
+    setRenewErr(null);
     try {
       const res = await api.renewContract(row.id);
       window.location.href = `/review/${res.id}`;
     } catch (e) {
-      setErr(String(e));
+      // non-fatal: keep the registry rendered, surface an inline dismissible banner
+      setRenewErr(`Couldn't renew ${row.ref}: ${String(e).replace(/^Error:\s*/, "")}`);
       setRenewing(null);
+      load();  // refresh in case the row changed under us (e.g. already renewed)
     }
   }
 
@@ -129,6 +133,13 @@ export default function ContractRegistryPage() {
           <div className="stat-sub">continued forward</div>
         </div>
       </div>
+
+      {renewErr && (
+        <div className="notice warn" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+          <span style={{ flex: 1 }}>{renewErr}</span>
+          <button className="btn sm ghost" onClick={() => setRenewErr(null)}>Dismiss</button>
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "center", flexWrap: "wrap" }}>
         <div className="seg">

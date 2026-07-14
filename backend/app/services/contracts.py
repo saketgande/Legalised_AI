@@ -15,6 +15,7 @@ import calendar
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import ActorType, Counterparty, Person, Request, RequestState
@@ -136,14 +137,27 @@ def start_renewal(db: Session, org_id: str, contract_id: str, *, actor_id: str, 
 
     requester = db.get(Person, orig.requester_id)
     counterparty = db.get(Counterparty, orig.counterparty_id)
-    renewal = create_outbound(
-        db, org=org_id, requester=requester,
-        actor=Actor(id=actor_id, type=ActorType.USER, label=actor_name),
-        counterparty_name=counterparty.name if counterparty else "Counterparty",
-        nda_type=orig.nda_type.value, purpose=orig.purpose, jurisdiction=orig.jurisdiction,
-        term_months=orig.term_months, channel="RENEWAL", playbook_id=orig.playbook_id,
-    )
-    renewal.renewed_from_id = orig.id
+    # The link is set inside create_outbound (at row creation, before its commit), so the
+    # renewal is never persisted with a NULL link and the partial unique index on
+    # renewed_from_id serialises concurrent renews — the loser hits IntegrityError and we
+    # return the winner instead of spawning a duplicate.
+    try:
+        renewal = create_outbound(
+            db, org=org_id, requester=requester,
+            actor=Actor(id=actor_id, type=ActorType.USER, label=actor_name),
+            counterparty_name=counterparty.name if counterparty else "Counterparty",
+            nda_type=orig.nda_type.value, purpose=orig.purpose, jurisdiction=orig.jurisdiction,
+            term_months=orig.term_months, channel="RENEWAL", playbook_id=orig.playbook_id,
+            renewed_from_id=orig.id,
+        )
+    except IntegrityError:
+        db.rollback()
+        existing = db.execute(
+            select(Request).where(Request.renewed_from_id == contract_id)
+        ).scalars().first()
+        if existing is not None:
+            return existing
+        raise
     record_audit(
         db, org_id=org_id, action="contract.renewal_started", resource_type="Request",
         resource_id=orig.id, actor_id=actor_id, actor_type=ActorType.USER, actor_label=actor_name,

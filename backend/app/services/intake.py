@@ -80,6 +80,7 @@ def create_outbound(
     db: Session, *, org: str, requester: Person, actor: Actor, counterparty_name: str,
     nda_type: str = "MUTUAL", purpose: str = "sales_evaluation", jurisdiction: str = "US",
     term_months: int = 24, channel: str = "FORM", playbook_id: str | None = None,
+    renewed_from_id: str | None = None,
 ) -> Request:
     from .playbooks import resolve_playbook
 
@@ -90,6 +91,9 @@ def create_outbound(
         nda_type=NdaType(nda_type), state=RequestState.NEW, requester_id=requester.id,
         counterparty_id=counterparty.id, purpose=purpose, jurisdiction=jurisdiction,
         term_months=term_months, channel=channel, playbook_id=playbook.id,
+        # set the renewal link at creation so it's never committed NULL (closes the
+        # crash-consistency gap) and the DB unique index rejects a concurrent double-renew
+        renewed_from_id=renewed_from_id,
     )
     db.add(r)
     db.flush()

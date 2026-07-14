@@ -267,6 +267,8 @@ def _ensure_request_types_and_ladders() -> None:
 
     db = SessionLocal()
     try:
+        from .services.workflows import ensure_default_workflows
+
         for org in db.execute(select(Organization)).scalars().all():
             ensure_default_request_types(db, org.id)
             for pb in db.execute(select(Playbook).where(Playbook.org_id == org.id)).scalars().all():
@@ -279,6 +281,8 @@ def _ensure_request_types_and_ladders() -> None:
                         rule.fallbacks = ladder["fallbacks"]
                         rule.walk_away_text = ladder["walk_away"]
             _ensure_dpa_playbook(db, org.id)
+            db.flush()  # request types must exist before workflows key off them
+            ensure_default_workflows(db, org.id)
         db.commit()
     finally:
         db.close()

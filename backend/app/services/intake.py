@@ -201,6 +201,10 @@ def create_outbound(
         actor_type=ActorType.AGENT, actor_label="Intake Assistant",
         metadata={"direction": "OUTBOUND", "type": r.type, "channel": channel},
     )
+    from .workflows import instantiate_workflow, mark_stages
+
+    instantiate_workflow(db, r)
+    mark_stages(db, r, "intake", "classify")
     result = triage_outbound(r, counterparty)
     r.lane = result.lane
     r.triage_reasons = result.reasons
@@ -222,6 +226,7 @@ def create_outbound(
         actor_type=ActorType.AGENT, actor_label="Playbook Engine",
         metadata={"title": doc.title, "content_hash": version.content_hash},
     )
+    mark_stages(db, r, "draft")
     # score-driven governance: the drafted round gets a risk assessment, and the
     # per-type band->rungs matrix picks the ladder (no more triage-reason mapping)
     finalize_round_governance(db, r, run=None, escalation_reasons=fired if r.lane == Lane.ESCALATED else [])
@@ -271,6 +276,10 @@ def create_inbound(
         actor_type=ActorType.AGENT, actor_label="Intake Assistant",
         metadata={"direction": "INBOUND", "type": r.type, "role": "RECIPIENT", "source": source},
     )
+    from .workflows import instantiate_workflow, mark_stages
+
+    instantiate_workflow(db, r)
+    mark_stages(db, r, "intake", "classify", "draft")  # their paper stands in for drafting
     doc = Document(org_id=org, request_id=r.id, origin="UPLOADED",
                    title=f"{counterparty.name} — inbound {type_label} (their paper)")
     db.add(doc)
@@ -327,6 +336,7 @@ def finalize_round_governance(db: Session, r: Request, *, run=None,
     from .approvals import build_ladder_from_risk
     from .request_types import risk_matrix_for
     from .risk import assess_round
+    from .workflows import gate_ladder_rungs, mark_stage
 
     extra_factors = [
         {"label": f"routing rule escalated: {name}", "points": 30, "kind": "DETERMINISTIC"}
@@ -334,8 +344,13 @@ def finalize_round_governance(db: Session, r: Request, *, run=None,
     ]
     assessment = assess_round(db, r, run=run, extra_factors=extra_factors)
     matrix = risk_matrix_for(db, r.org_id, (r.type or "nda").lower())
+    if run is not None:
+        mark_stage(db, r, "redline", "done", round_no=r.round)
+    mark_stage(db, r, "risk_score", "done", round_no=r.round)
 
-    forced: list[dict] = list(extra_rungs or [])
+    # workflow-template gate rungs (e.g. the DPA's DPO gate) join every round's
+    # ladder on top of whatever the caller forced
+    forced: list[dict] = list(extra_rungs or []) + gate_ladder_rungs(r)
     if run is not None and not (matrix.get(assessment.band.value) or forced):
         # their paper never auto-clears, whatever the score says — a human
         # reads it before anything goes back out
@@ -344,6 +359,7 @@ def finalize_round_governance(db: Session, r: Request, *, run=None,
 
     ladder = build_ladder_from_risk(db, r, assessment, matrix, extra_rungs=forced)
     if ladder is None:
+        mark_stage(db, r, "approvals", "done", round_no=r.round)
         if r.lane != Lane.ESCALATED:
             r.lane = Lane.AUTO
         r.state = RequestState.APPROVED
@@ -356,6 +372,7 @@ def finalize_round_governance(db: Session, r: Request, *, run=None,
                       or ["on-playbook draft, all facts within policy"]},
         )
     else:
+        mark_stage(db, r, "approvals", "active", round_no=r.round)
         if r.lane != Lane.ESCALATED:
             r.lane = Lane.ASSISTED
         r.state = RequestState.IN_REVIEW

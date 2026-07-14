@@ -47,6 +47,10 @@ def send_to_counterparty(db: Session, r: Request, actor: Actor) -> Request:
     version = db.get(DocumentVersion, doc.current_version_id) if doc and doc.current_version_id else None
 
     r.state = RequestState.WITH_COUNTERPARTY
+    from .workflows import mark_stage
+
+    mark_stage(db, r, "approvals", "done", round_no=r.round)
+    mark_stage(db, r, "counterparty", "active", round_no=r.round)
     record_audit(
         db, org_id=r.org_id, action="request.sent_to_counterparty", resource_type="Request",
         resource_id=r.id, actor_id=actor.id, actor_type=actor.type, actor_label=actor.label,
@@ -87,6 +91,9 @@ def record_counterparty_return(
 
     r.round = (r.round or 1) + 1
     r.state = RequestState.RETURNED
+    from .workflows import mark_stage
+
+    mark_stage(db, r, "counterparty", "done", round_no=r.round - 1)  # their turn ended
     cp = db.get(Counterparty, r.counterparty_id)
     record_audit(
         db, org_id=r.org_id, action="request.counterparty_returned", resource_type="Request",

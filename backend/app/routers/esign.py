@@ -67,8 +67,10 @@ async def docusign_webhook(
             metadata={"envelope_id": envelope_id, "countersigned_by": cp.name if cp else "counterparty"},
         )
         from ..services.obligations import extract_obligations_for_contract
+        from ..services.workflows import mark_stages
 
         extract_obligations_for_contract(db, r)  # what the signed contract commits us to
+        mark_stages(db, r, "esign", "obligations", "seal")
         r.state = RequestState.FILED
         record_audit(
             db, org_id=r.org_id, action="request.filed", resource_type="Request", resource_id=r.id,

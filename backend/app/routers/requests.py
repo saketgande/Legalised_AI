@@ -351,9 +351,23 @@ def _detail(db: Session, r: Request, user: User | None = None) -> dict:
             "resolution_note": r.resolution_note,
             "risk": _risk_out(history[-1]) if history else None,
             "risk_history": [_risk_out(a) for a in history],
+            "workflow": _workflow_out(db, r),
         }
     )
     return base
+
+
+def _workflow_out(db: Session, r: Request) -> dict | None:
+    if not (r.workflow_rungs or []):
+        return None
+    from ..models import WorkflowTemplate
+
+    tpl = db.get(WorkflowTemplate, r.workflow_template_id) if r.workflow_template_id else None
+    return {
+        "template_name": tpl.name if tpl else None,
+        "version": r.workflow_version,
+        "rungs": r.workflow_rungs or [],
+    }
 
 
 # ————————————————————————— endpoints —————————————————————————
@@ -675,8 +689,11 @@ def approve_step(
 
     db.refresh(ladder)
     if all_steps_cleared(ladder):
+        from ..services.workflows import mark_stage
+
         ladder.status = "APPROVED"
         r.state = RequestState.APPROVED
+        mark_stage(db, r, "approvals", "done", round_no=r.round)
         record_audit(
             db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
             actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
@@ -806,6 +823,11 @@ def send_request(
     r.esign_provider = result.provider
     r.esign_status = result.status
     r.state = RequestState.OUT_FOR_SIGNATURE
+    from ..services.workflows import mark_stage as _wf_mark
+
+    _wf_mark(db, r, "approvals", "done", round_no=r.round)
+    _wf_mark(db, r, "counterparty", "done", round_no=r.round)  # negotiation converged
+    _wf_mark(db, r, "esign", "active", round_no=r.round)
     record_audit(
         db, org_id=r.org_id, action="request.sent", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.SYSTEM, actor_label="System",
@@ -836,8 +858,10 @@ def simulate_signature(
         metadata={"countersigned_by": cp.name if cp else "counterparty"},
     )
     from ..services.obligations import extract_obligations_for_contract
+    from ..services.workflows import mark_stages as _wf_marks
 
     extract_obligations_for_contract(db, r)  # what the signed contract commits us to
+    _wf_marks(db, r, "esign", "obligations", "seal")
     r.state = RequestState.FILED
     record_audit(
         db, org_id=r.org_id, action="request.filed", resource_type="Request", resource_id=r.id,

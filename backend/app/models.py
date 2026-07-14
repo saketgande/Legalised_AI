@@ -310,6 +310,14 @@ class Request(Base):
     # return bumps it. Every round gets its own ReviewRun + RiskAssessment + ladder.
     round: Mapped[int] = mapped_column(Integer, default=1)
 
+    # workflow instance: which template (at which version) governs this matter,
+    # and the instantiated rung snapshot the executor advances. The snapshot is
+    # pinned at creation — publishing a new template version never rewrites
+    # in-flight matters.
+    workflow_template_id: Mapped[str | None] = mapped_column(ForeignKey("workflow_template.id"), nullable=True)
+    workflow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    workflow_rungs: Mapped[list] = mapped_column(JSON, default=list)
+
     # queue operations (routing rules + triage cockpit)
     assigned_to_user_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
     priority: Mapped[RequestPriority] = mapped_column(Enum(RequestPriority), default=RequestPriority.NORMAL)
@@ -443,6 +451,39 @@ class ProposedChange(Base):
     decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     run: Mapped[ReviewRun] = relationship(back_populates="changes")
+
+
+# ————————————————————— workflow templates (the ladder as data) —————————————————————
+class WorkflowTemplate(Base):
+    """A versioned blueprint of the stages a contract type walks through.
+    ``rungs`` is the ordered stage list:
+
+        [{key, kind: D|A|H|T, name, mode: pinned|always|cond,
+          cond?: {field, value?, label}, rung?: vp_legal|gc, sla_hours?}]
+
+    ``pinned`` rungs (intake, seal at minimum) can be reordered but never
+    removed — the designer API refuses. ``cond`` rungs instantiate only when
+    the matter's attributes fire the condition; H-kind cond/always gate rungs
+    feed extra steps into every round's approval ladder. Publishing bumps
+    ``version``; in-flight matters keep the snapshot they were created with."""
+    __tablename__ = "workflow_template"
+    __table_args__ = (
+        Index(
+            "uq_workflow_active_default", "org_id", "type_key",
+            unique=True,
+            postgresql_where=text("active"),
+            sqlite_where=text("active"),
+        ),
+    )
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
+    type_key: Mapped[str] = mapped_column(String, nullable=False)  # "nda", "dpa", …
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    active: Mapped[bool] = mapped_column(Boolean, default=False)  # the type's default
+    rungs: Mapped[list] = mapped_column(JSON, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 # ————————————————————— risk assessment (score-driven governance) —————————————————————

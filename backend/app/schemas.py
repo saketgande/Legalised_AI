@@ -199,6 +199,7 @@ class RequestDetailOut(RequestSummaryOut):
     resolution_note: str | None = None    # the approved answer
     risk: RiskOut | None = None           # the current round's risk assessment
     risk_history: list[RiskOut] = []      # one per round, ascending
+    workflow: dict | None = None          # {template_name, version, rungs: [...]}
 
 
 class RequesterStatusOut(BaseModel):

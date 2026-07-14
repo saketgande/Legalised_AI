@@ -102,21 +102,19 @@ def build_ladder_from_risk(
     db.add(ladder)
     db.flush()
 
-    # step reasons: strongest un-used risk factors first, then extras, then a
-    # generic band line — every step says WHY it exists
+    # Step reasons: a workflow-gate rung keeps its own reason; every matrix-
+    # picked rung gets the SAME honest summary — band, score, top drivers.
+    # (Zipping ranked factors onto rungs one-by-one attributed the strongest
+    # factor to the most junior rung, and that misattribution was being sealed
+    # into the approval audit rows.)
     factor_labels = [f["label"] for f in sorted(
         (assessment.factors or []), key=lambda f: -int(f.get("points", 0))
     )]
+    drivers = "; ".join(factor_labels[:2]) if factor_labels else "policy requires sign-off"
+    band_reason = f"Risk {band} ({assessment.score}/100) — {drivers}"
     extra_by_rung = {e.get("rung"): e.get("reason", "") for e in (extra_rungs or [])}
-    used = 0
     for ordinal, rung in enumerate(sorted(set(rungs), key=lambda x: _RUNG_ORDER.get(x, 9))):
-        if extra_by_rung.get(rung):
-            reason = extra_by_rung[rung]
-        elif used < len(factor_labels):
-            reason = factor_labels[used]
-            used += 1
-        else:
-            reason = f"Risk {band} ({assessment.score}/100) requires {rung.replace('_', ' ')} sign-off."
+        reason = extra_by_rung.get(rung) or band_reason
         assignee = _assignee_for_rung(db, request.org_id, rung)
         db.add(ApprovalStep(
             ladder_id=ladder.id, ordinal=ordinal, rung=rung,
@@ -135,3 +133,22 @@ def ladder_for_request(db: Session, request_id: str) -> ApprovalLadder | None:
 
 def all_steps_cleared(ladder: ApprovalLadder) -> bool:
     return all(s.status == StepStatus.APPROVED for s in ladder.steps)
+
+
+def approval_blockers(db: Session, request: Request) -> list[str]:
+    """The single source of truth for 'may this request flip to APPROVED'.
+    BOTH gates must clear — the risk-built ladder AND the current round's
+    redline decisions. Two half-gates checked in two different endpoints is
+    exactly how a CRITICAL matter slips past its GC rung."""
+    from .redline import latest_run
+
+    blockers: list[str] = []
+    ladder = ladder_for_request(db, request.id)
+    if ladder is not None and not all_steps_cleared(ladder):
+        pending = [s.rung for s in ladder.steps if s.status == StepStatus.PENDING]
+        blockers.append(f"approval ladder has pending steps: {', '.join(pending)}")
+    run = latest_run(db, request.id)
+    if run is not None and any(c.decision == "PENDING" for c in run.changes):
+        n = sum(1 for c in run.changes if c.decision == "PENDING")
+        blockers.append(f"{n} proposed redline{'s' if n != 1 else ''} still undecided")
+    return blockers

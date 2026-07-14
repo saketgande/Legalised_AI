@@ -8,14 +8,19 @@ import { Timeline } from "../../components/Timeline";
 import { RiskBadge, WorkflowRail } from "../../components/Workflow";
 
 /* ---------- the negotiation loop panel (shared by inbound + outbound) ---------- */
-function NegotiationPanel({ r, busy, act, onSignature }: {
+function NegotiationPanel({ r, busy, act, onSignature, canSendPerm, canReturnPerm }: {
   r: RequestDetail; busy: boolean;
   act: (fn: () => Promise<RequestDetail>) => void;
   onSignature: () => void;
+  canSendPerm: boolean; canReturnPerm: boolean;
 }) {
   const [showReturn, setShowReturn] = useState(false);
   const [returnText, setReturnText] = useState("");
   const [returnFile, setReturnFile] = useState<File | null>(null);
+  // a fresh round must never inherit last round's pasted text or — worse — a
+  // stale uploaded file that would silently win over freshly pasted markup
+  useEffect(() => { setShowReturn(false); setReturnText(""); setReturnFile(null); },
+    [r.round, r.state]);
   const withCp = r.state === "WITH_COUNTERPARTY";
   const approved = r.state === "APPROVED";
 
@@ -27,11 +32,13 @@ function NegotiationPanel({ r, busy, act, onSignature }: {
       </div>
       {approved && (
         <>
-          <button className="btn" style={{ width: "100%", marginBottom: 8 }} disabled={busy}
+          <button className="btn" style={{ width: "100%", marginBottom: 8 }} disabled={busy || !canSendPerm}
+            title={canSendPerm ? "" : "Needs the request:send permission"}
             onClick={() => act(() => api.sendToCounterparty(r.id))}>
             Send to counterparty for review →
           </button>
-          <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={onSignature}>
+          <button className="btn primary" style={{ width: "100%" }} disabled={busy || !canSendPerm}
+            title={canSendPerm ? "" : "Needs the request:send permission"} onClick={onSignature}>
             Send for signature (terms agreed)
           </button>
           <p className="faint" style={{ fontSize: 11.5, margin: "8px 0 0" }}>
@@ -46,7 +53,9 @@ function NegotiationPanel({ r, busy, act, onSignature }: {
             record it here (or let the email intake thread-match it by ref).
           </div>
           {!showReturn ? (
-            <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowReturn(true)}>
+            <button className="btn primary" style={{ width: "100%" }} disabled={!canReturnPerm}
+              title={canReturnPerm ? "" : "Needs review:decide or intake:manage"}
+              onClick={() => setShowReturn(true)}>
               Record their return →
             </button>
           ) : (
@@ -242,10 +251,14 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <span className="muted" style={{ fontSize: 12 }}>
             {(r.type_label || "NDA").split(" / ")[0] === "NDA"
               ? (r.nda_type === "MUTUAL" ? "Mutual NDA" : "One-way NDA")
-              : (r.type_label || "").split(" / ")[0]} · {r.direction === "INBOUND" ? "their paper — we review" : "our paper — we send"}
+              : (r.type_label || "").split(" / ")[0]} · {r.direction === "INBOUND" ? "their paper — we review"
+                : r.round > 1 ? "our paper — their markup under review" : "our paper — we send"}
           </span>
         )}
-        {advice ? <LanePill lane={r.lane} /> : inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
+        {advice ? <LanePill lane={r.lane} />
+          : r.direction === "INBOUND" ? <span className="pill escalated">INBOUND</span>
+          : inbound ? <span className="pill warn">NEGOTIATING</span>
+          : <LanePill lane={r.lane} />}
         <span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span>
         {!advice && <RiskBadge risk={r.risk} />}
         {!advice && r.round > 1 && <span className="pill accent">↺ round {r.round}</span>}
@@ -338,15 +351,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 )}
               </div>
 
-              {/* action strip */}
+              {/* action strip — sending lives in the Negotiation panel (review vs signature) */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
-                {canSend && (
-                  <button className="btn primary" disabled={busy} onClick={() => setConfirmSend(true)}>
-                    Send counter-proposal →
-                  </button>
+                {!canSend && !outForSig && !filed && r.state !== "WITH_COUNTERPARTY" && (
+                  <span className="muted" style={{ fontSize: 12.5 }}>Decide every proposed change and clear the approval ladder to unlock sending.</span>
                 )}
-                {!canSend && !outForSig && !filed && (
-                  <span className="muted" style={{ fontSize: 12.5 }}>Decide every proposed change to unlock the counter-proposal.</span>
+                {r.state === "WITH_COUNTERPARTY" && (
+                  <span className="muted" style={{ fontSize: 12.5 }}>With {r.counterparty_name} for review — record their return in the Negotiation panel when it lands.</span>
                 )}
                 <button className="btn ghost sm" onClick={() => setShowCounter((s) => !s)}>
                   {showCounter ? "Hide" : "Preview"} counter-proposal
@@ -414,7 +425,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
                 {/* margin comments = the proposed redlines */}
                 <div className="desk-margin">
-                  <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)} />
+                  <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)}
+                    canSendPerm={user?.permissions.includes("request:send") ?? false}
+                    canReturnPerm={(user?.permissions.includes("review:decide") || user?.permissions.includes("intake:manage")) ?? false} />
                   {r.ladder && r.ladder.steps.some((s) => s.status === "PENDING") && (
                     <div className="card" style={{ padding: 16 }}>
                       <div className="kicker" style={{ marginBottom: 10 }}>Approval ladder · round {r.round}</div>
@@ -521,7 +534,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
             )}
-            <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)} />
+            <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)}
+                    canSendPerm={user?.permissions.includes("request:send") ?? false}
+                    canReturnPerm={(user?.permissions.includes("review:decide") || user?.permissions.includes("intake:manage")) ?? false} />
             {(outForSig || filed || (!canSend && r.state !== "WITH_COUNTERPARTY")) && (
               <div className="card" style={{ padding: 16 }}>
                 <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>

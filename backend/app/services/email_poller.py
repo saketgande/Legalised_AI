@@ -199,6 +199,13 @@ def poll_mailbox(db: Session, mailbox: EmailMailbox, connect=_default_connect, l
                 outcomes.append(MessageOutcome(uid_s, parsed["from_email"], parsed["subject"], res))
             except Exception as e:  # noqa: BLE001
                 log.exception("email-poll: message %s failed", uid_s)
+                # a failed flush (e.g. a concurrent-return IntegrityError) poisons
+                # the shared session — roll back so the REST of the batch, and the
+                # final bookkeeping commit, still succeed
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 outcomes.append(MessageOutcome(uid_s, "", "", None, error=f"{type(e).__name__}: {e}"))
     except Exception as e:  # noqa: BLE001
         error = f"{type(e).__name__}: {e}"

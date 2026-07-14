@@ -148,6 +148,56 @@ def test_email_thread_match_routes_into_loop(db):
     assert r.round == 2 and r.state == RequestState.IN_REVIEW
 
 
+def test_email_thread_match_rejects_hostile_sender(db):
+    """Refs are guessable and the mailbox accepts mail from anyone: a 'return'
+    from a sender that doesn't look like the counterparty must NOT hijack the
+    negotiation — it falls through to normal intake as its own ticket."""
+    from app.services.email_intake import ingest_email
+
+    org, p = _org_with_playbook(db)
+    r = _approved_outbound(db, org, p)
+    r = send_to_counterparty(db, r, ACTOR)
+
+    res = ingest_email(
+        db, org=org.id, from_email="attacker@evil.example", from_name="Not Acme",
+        subject=f"RE: {r.ref} — updated terms", body=RETURN_TEXT,
+    )
+    assert res.classified != "counterparty_return"
+    db.refresh(r)
+    assert r.round == 1 and r.state == RequestState.WITH_COUNTERPARTY  # untouched
+
+
+def test_approval_needs_both_gates(db):
+    """APPROVED requires the ladder cleared AND every redline decided —
+    either gate alone must not flip the state (the ladder-bypass fix)."""
+    from app.services.approvals import approval_blockers, ladder_for_request
+
+    org, p = _org_with_playbook(db)
+    r = _approved_outbound(db, org, p)
+    r = send_to_counterparty(db, r, ACTOR)
+    r = record_counterparty_return(db, r, body_text=RETURN_TEXT, actor=ACTOR)
+
+    blockers = approval_blockers(db, r)
+    assert len(blockers) == 2  # pending ladder steps AND undecided redlines
+
+    # clear the ladder only -> still blocked by the undecided redlines
+    ladder = ladder_for_request(db, r.id)
+    for s in ladder.steps:
+        s.status = StepStatus.APPROVED
+    db.flush()
+    blockers = approval_blockers(db, r)
+    assert len(blockers) == 1 and "redline" in blockers[0]
+
+    # decide every redline too -> both gates clear
+    from app.models import ProposedChange
+    from sqlalchemy import select as _sel
+    run = db.execute(_sel(ReviewRun).where(ReviewRun.request_id == r.id)).scalars().first()
+    for c in run.changes:
+        c.decision = "REJECTED"
+    db.flush()
+    assert approval_blockers(db, r) == []
+
+
 def test_email_without_ref_still_normal_intake(db):
     from app.services.email_intake import ingest_email
 

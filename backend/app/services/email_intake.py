@@ -45,11 +45,34 @@ def _first_supported_attachment(attachments: list[tuple[str, bytes]]) -> tuple[s
 _REF_RE = None  # compiled lazily
 
 
-def _try_thread_match(db: Session, *, org: str, subject: str, body: str,
+def _sender_matches_counterparty(db: Session, r, from_email: str) -> bool:
+    """Refs are sequential and guessable, and the intake mailbox accepts mail
+    from anyone — so a 'return' is only thread-matched when the SENDER looks
+    like the request's counterparty: their recorded domain, or a substantive
+    token of their name appearing in the sender's domain. Anything else falls
+    through to normal intake (its own ticket) instead of polluting an active
+    negotiation with attacker-controlled text."""
+    from ..models import Counterparty
+
+    cp = db.get(Counterparty, r.counterparty_id)
+    if cp is None:
+        return False
+    domain = (from_email.rsplit("@", 1)[-1] if "@" in from_email else "").lower()
+    if not domain:
+        return False
+    if (cp.domain or "").lower().strip() and domain.endswith((cp.domain or "").lower().strip()):
+        return True
+    import re
+    tokens = [t for t in re.split(r"[^a-z0-9]+", (cp.name or "").lower()) if len(t) >= 4]
+    return any(t in domain for t in tokens)
+
+
+def _try_thread_match(db: Session, *, org: str, from_email: str, subject: str, body: str,
                       attachments, actor) -> IngestResult | None:
-    """If the message references one of OUR refs and that request is
-    WITH_COUNTERPARTY, this is their markup coming back — feed the negotiation
-    loop. Failures fall through to normal intake rather than dropping mail."""
+    """If the message references one of OUR refs, that request is
+    WITH_COUNTERPARTY, and the sender plausibly IS the counterparty, this is
+    their markup coming back — feed the negotiation loop. Failures fall
+    through to normal intake rather than dropping mail."""
     global _REF_RE
     import re
     from sqlalchemy import select
@@ -70,6 +93,8 @@ def _try_thread_match(db: Session, *, org: str, subject: str, body: str,
     ).scalars().first()
     if r is None:
         return None  # ref mentioned but nothing waiting on a return — normal intake
+    if not _sender_matches_counterparty(db, r, from_email):
+        return None  # sender doesn't look like the counterparty — normal intake
 
     att = _first_supported_attachment(attachments or [])
     text = body
@@ -79,7 +104,8 @@ def _try_thread_match(db: Session, *, org: str, subject: str, body: str,
         except Exception:
             text = body  # unreadable attachment -> try the body itself
     try:
-        r = record_counterparty_return(db, r, body_text=text, actor=actor, source="email")
+        r = record_counterparty_return(db, r, body_text=text, actor=actor,
+                                       source=f"email:{from_email}")
     except NegotiationError:
         return None  # e.g. body too short to be a document — treat as normal mail
     except PlaybookResolutionError:
@@ -102,8 +128,8 @@ def ingest_email(
     # thread matching FIRST: a reply that names one of our refs while that
     # request is sitting with the counterparty is their markup coming back —
     # route it into the negotiation loop, never a duplicate ticket
-    threaded = _try_thread_match(db, org=org, subject=subject, body=body,
-                                 attachments=attachments, actor=actor)
+    threaded = _try_thread_match(db, org=org, from_email=from_email, subject=subject,
+                                 body=body, attachments=attachments, actor=actor)
     if threaded is not None:
         return threaded
 

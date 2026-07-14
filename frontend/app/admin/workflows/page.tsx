@@ -41,6 +41,9 @@ function MatrixEditor({ row, onSaved }: { row: RiskMatrixRow; onSaved: () => voi
   const [m, setM] = useState<Record<string, string[]>>(row.risk_ladders);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // re-sync after save/reset reloads the row — stale local state here would
+  // render a matrix that no longer matches what the engine reads
+  useEffect(() => { setM(row.risk_ladders); }, [row.risk_ladders]);
   const dirty = JSON.stringify(m) !== JSON.stringify(row.risk_ladders);
 
   const toggle = (band: string, rung: string) => {

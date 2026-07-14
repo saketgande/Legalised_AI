@@ -144,12 +144,29 @@ def decide_change(
 
     db.flush()
     db.refresh(run)
-    if all(c.decision != "PENDING" for c in run.changes):
+    # APPROVED requires BOTH gates: every redline decided AND the risk-built
+    # ladder cleared. Deciding the last change while vp_legal/GC steps are
+    # still pending must not flip the state — that would make the score-driven
+    # ladder advisory. Also: only the CURRENT round's run may advance state
+    # (deciding a leftover round-1 change during round 2 is bookkeeping, not
+    # approval), and only from a review state.
+    from ..services.approvals import approval_blockers
+    from ..services.redline import latest_run as _latest_run
+
+    current = _latest_run(db, r.id)
+    if (
+        current is not None and current.id == run.id
+        and r.state in (RequestState.IN_REVIEW, RequestState.RETURNED)
+        and not approval_blockers(db, r)
+    ):
+        from ..services.workflows import mark_stage
+
         r.state = RequestState.APPROVED
+        mark_stage(db, r, "approvals", "done", round_no=r.round)
         record_audit(
             db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
             actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-            metadata={"changes": len(run.changes)},
+            metadata={"changes": len(run.changes), "round": r.round},
         )
     db.commit()
     db.refresh(r)

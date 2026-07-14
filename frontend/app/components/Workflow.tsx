@@ -41,7 +41,8 @@ export function RiskBadge({ risk, compact = false }: { risk: RiskAssessment | nu
       {open && (
         <div className="card" style={{
           position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 40,
-          width: 360, padding: "12px 14px", boxShadow: "0 12px 32px rgba(0,0,0,.18)",
+          width: "min(360px, 90vw)", maxHeight: 380, overflowY: "auto",
+          padding: "12px 14px", boxShadow: "0 12px 32px rgba(0,0,0,.18)",
         }}>
           <div className="kicker" style={{ marginBottom: 6 }}>
             Risk factors — round {risk.round} · {risk.model === "deterministic" ? "deterministic" : `AI-adjusted (${risk.model})`}

@@ -19,6 +19,7 @@ const TITLES: [RegExp, string][] = [
   [/^\/review\//, "Redline cockpit"],
   [/^\/r\//, "Request status"],
   [/^\/admin\/playbook/, "Playbook"],
+  [/^\/admin\/workflows/, "Workflows & governance"],
   [/^\/admin\/routing/, "Routing rules"],
   [/^\/admin/, "Users & roles"],
 ];

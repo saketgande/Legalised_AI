@@ -85,8 +85,21 @@ def test_off_policy_facts_stack(db):
 
 
 def test_sanctioned_counterparty_is_critical_floor(db):
-    org, r = _setup(db, sanctioned=True, jurisdiction="UK")
+    """A sanctioned counterparty ALONE must reach CRITICAL — no stacking with
+    other factors allowed to mask a too-small weight."""
+    org, r = _setup(db, sanctioned=True)
     a = assess_round(db, r, ai=AbstainAI())
+    assert a.band == RiskBand.CRITICAL
+
+
+def test_walk_away_alone_is_critical(db):
+    """One walk-away breach must be CRITICAL on its own — it is the line we
+    never cross, and the designer UI tells admins exactly that."""
+    org, r = _setup(db)
+    run = _run_with(db, r, [
+        ("DEVIATION", "gc", [{"name": "position_ladder", "detail": "walk_away: crosses the line"}]),
+    ])
+    a = assess_round(db, r, run=run, ai=AbstainAI())
     assert a.band == RiskBand.CRITICAL
 
 
@@ -139,7 +152,6 @@ def test_walk_away_breach_scores_critical(db):
         ("MISSING", "vp_legal", []),
     ])
     a = assess_round(db, r, run=run, ai=AbstainAI())
-    # 45 walk-away + 3*7 missing + 5 their-paper = 71
     assert a.score >= 70 and a.band == RiskBand.CRITICAL
 
 

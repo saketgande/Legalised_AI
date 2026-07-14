@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -673,11 +674,17 @@ def approve_step(
     step_id: str, payload: ApproveStepIn,
     user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
 ):
+    from ..services.approvals import approval_blockers
+
     step = db.get(ApprovalStep, step_id)
     if step is None:
         raise HTTPException(404, "approval step not found")
     ladder = step.ladder
     r = _authorize_org_write(user, db.get(Request, ladder.request_id))  # foreign-org step -> 404
+    if r.state not in (RequestState.IN_REVIEW, RequestState.RETURNED):
+        # a stale step on a matter that already moved on (approved / with the
+        # counterparty / signed) must not re-fire the approval anchor
+        raise HTTPException(409, f"request is not in review (is {r.state.value})")
     if step.status != StepStatus.PENDING:
         raise HTTPException(409, "step already decided")
     assert_can_clear_rung(user, step.rung)  # rung-gated: seniority enforced
@@ -692,16 +699,19 @@ def approve_step(
     )
 
     db.refresh(ladder)
+    # APPROVED requires BOTH gates: the ladder AND every redline decided —
+    # clearing the last step while findings sit PENDING must not flip state
     if all_steps_cleared(ladder):
+        ladder.status = "APPROVED"
+    if not approval_blockers(db, r):
         from ..services.workflows import mark_stage
 
-        ladder.status = "APPROVED"
         r.state = RequestState.APPROVED
         mark_stage(db, r, "approvals", "done", round_no=r.round)
         record_audit(
             db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
             actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-            metadata={"steps": len(ladder.steps)},
+            metadata={"steps": len(ladder.steps), "round": r.round},
         )
     db.commit()
     db.refresh(r)
@@ -751,6 +761,11 @@ def counterparty_return_route(
     except PlaybookResolutionError as e:
         db.rollback()
         raise HTTPException(409, str(e))
+    except IntegrityError:
+        # two concurrent returns raced; the unique (request, round) constraint
+        # kept the data consistent — surface the loser as a conflict, not a 500
+        db.rollback()
+        raise HTTPException(409, "a return for this round is already being processed")
     return _detail(db, r, user)
 
 
@@ -782,6 +797,9 @@ async def counterparty_return_upload_route(
     except PlaybookResolutionError as e:
         db.rollback()
         raise HTTPException(409, str(e))
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "a return for this round is already being processed")
     return _detail(db, r, user)
 
 
@@ -800,13 +818,17 @@ def send_request(
     cp = db.get(Counterparty, r.counterparty_id)
     requester = db.get(Person, r.requester_id)
 
-    # the signing packet: outbound = our draft; inbound = the accepted counter-proposal
-    if r.direction == Direction.INBOUND:
-        from ..services.redline import build_counter_markdown, latest_run
+    # The signing packet. Whenever a review run exists (inbound paper, or ANY
+    # request in round >= 2 — the counterparty's markup became the current
+    # version), the packet is the counter-proposal WITH the lawyers' decisions
+    # applied. Sending the raw current version would transmit clauses a human
+    # explicitly rejected.
+    from ..services.redline import build_counter_markdown, latest_run
 
-        run = latest_run(db, r.id)
-        body_md = build_counter_markdown(db, r, run) if run else ""
-        title = f"Counter-proposal — {cp.name if cp else 'NDA'}"
+    run = latest_run(db, r.id)
+    if run is not None:
+        body_md = build_counter_markdown(db, r, run)
+        title = f"Counter-proposal — {cp.name if cp else r.ref}"
     else:
         doc = db.get(Document, r.document_id)
         version = db.get(DocumentVersion, doc.current_version_id) if doc else None

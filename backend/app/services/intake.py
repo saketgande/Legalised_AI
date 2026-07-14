@@ -342,6 +342,11 @@ def finalize_round_governance(db: Session, r: Request, *, run=None,
         {"label": f"routing rule escalated: {name}", "points": 30, "kind": "DETERMINISTIC"}
         for name in (escalation_reasons or [])
     ]
+    if r.lane == Lane.ESCALATED and not extra_factors:
+        # later rounds don't re-fire routing rules, but an escalated matter
+        # stays escalated — the pricing must not silently evaporate at round 2
+        extra_factors.append({"label": "request is in the escalated lane",
+                              "points": 30, "kind": "DETERMINISTIC"})
     assessment = assess_round(db, r, run=run, extra_factors=extra_factors)
     matrix = risk_matrix_for(db, r.org_id, (r.type or "nda").lower())
     if run is not None:

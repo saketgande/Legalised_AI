@@ -35,7 +35,7 @@ _BANDS = [(70, RiskBand.CRITICAL), (40, RiskBand.HIGH), (15, RiskBand.MEDIUM), (
 
 # deterministic factor weights
 W = {
-    "walk_away": 45,          # per walk-away breach — never below HIGH on its own
+    "walk_away": 70,          # per walk-away breach — CRITICAL on its own; the line we never cross
     "deviation_gc": 25,       # deviation whose playbook rung is gc
     "deviation_vp": 12,       # deviation priced at vp_legal
     "deviation_other": 8,
@@ -45,7 +45,7 @@ W = {
     "jurisdiction": 40,       # off-policy governing law (was a GC rung pre-scoring)
     "term": 20,               # term over the self-serve cap
     "purpose": 20,            # purpose not pre-approved
-    "counterparty_flag": 60,  # blocklisted / sanctioned — CRITICAL floor
+    "counterparty_flag": 75,  # blocklisted / sanctioned — a true CRITICAL floor
     "their_paper": 5,         # inbound paper carries baseline risk vs our own
 }
 AI_ADJUSTMENT_CAP = 30

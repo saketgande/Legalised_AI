@@ -1,0 +1,120 @@
+"""Operations metrics — SLA compliance, deflection, turnaround.
+
+The value story is speed: NDAs handled fast, most without a lawyer. This computes
+the numbers a legal-ops buyer actually tracks (CLOC KPIs): deflection rate,
+SLA compliance, cycle time, and per-request SLA posture.
+
+SLA clock starts at ``created_at``. It stops when the request is RESOLVED (legal's
+work is done — approved to send onward, or already sent/signed/filed). Cancelled
+requests are excluded. Cycle time for resolved requests uses ``updated_at`` as the
+resolution timestamp (the last state transition).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..models import Counterparty, Lane, Person, Request, RequestState
+
+# turnaround targets in hours, by triage lane (AUTO should be ~instant; escalations get longer)
+TARGET_HOURS = {"AUTO": 8, "ASSISTED": 24, "ESCALATED": 48}
+DEFAULT_TARGET = 24  # inbound reviews / unlaned requests
+
+# "legal is done" — the SLA clock stops here
+RESOLVED_STATES = {
+    RequestState.APPROVED, RequestState.OUT_FOR_SIGNATURE,
+    RequestState.EXECUTED, RequestState.FILED,
+}
+
+
+def _aware(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _target(lane: Lane | None) -> int:
+    return TARGET_HOURS.get(lane.value, DEFAULT_TARGET) if lane else DEFAULT_TARGET
+
+
+def ops_metrics(db: Session, org_id: str) -> dict:
+    now = datetime.now(timezone.utc)
+    today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    reqs = db.execute(select(Request).where(Request.org_id == org_id)).scalars().all()
+
+    total = len(reqs)
+    auto = resolved = cancelled = in_flight = 0
+    breached = at_risk = on_track = 0
+    met = missed = 0
+    cycle_sum = 0.0
+    cycle_n = 0
+    vol = [0] * 7
+    rows: list[dict] = []
+
+    for r in reqs:
+        created = _aware(r.created_at)
+        updated = _aware(r.updated_at or r.created_at)
+        target = _target(r.lane)
+        if r.lane == Lane.AUTO:
+            auto += 1
+
+        d0 = created.replace(hour=0, minute=0, second=0, microsecond=0)
+        idx = 6 - int((today0 - d0).total_seconds() // 86400)
+        if 0 <= idx < 7:
+            vol[idx] += 1
+
+        status = None
+        elapsed = cyc = None
+        if r.state == RequestState.CANCELLED:
+            cancelled += 1
+            status = "cancelled"
+        elif r.state in RESOLVED_STATES:
+            resolved += 1
+            cyc = max(0.0, (updated - created).total_seconds() / 3600)
+            cycle_sum += cyc
+            cycle_n += 1
+            if cyc <= target:
+                met += 1; status = "met"
+            else:
+                missed += 1; status = "missed"
+        else:
+            in_flight += 1
+            elapsed = max(0.0, (now - created).total_seconds() / 3600)
+            if elapsed > target:
+                breached += 1; status = "breached"
+            elif elapsed > 0.75 * target:
+                at_risk += 1; status = "at_risk"
+            else:
+                on_track += 1; status = "on_track"
+
+        cp = db.get(Counterparty, r.counterparty_id)
+        pr = db.get(Person, r.requester_id)
+        rows.append({
+            "id": r.id, "ref": r.ref,
+            "counterparty": cp.name if cp else "—",
+            "requester": pr.name if pr else "—",
+            "lane": r.lane.value if r.lane else None,
+            "direction": r.direction.value,
+            "state": r.state.value,
+            "target_hours": target,
+            "elapsed_hours": round(elapsed, 2) if elapsed is not None else None,
+            "cycle_hours": round(cyc, 2) if cyc is not None else None,
+            "status": status,
+        })
+
+    order = {"breached": 0, "at_risk": 1, "on_track": 2, "missed": 3, "met": 4, "cancelled": 5}
+    rows.sort(key=lambda x: (order.get(x["status"], 9), -((x["elapsed_hours"] or 0))))
+
+    return {
+        "totals": {"total": total, "in_flight": in_flight, "resolved": resolved,
+                   "auto_resolved": auto, "cancelled": cancelled},
+        "deflection_rate": (auto / total) if total else 0.0,
+        "sla": {
+            "breached": breached, "at_risk": at_risk, "on_track": on_track,
+            "compliance_rate": (met / (met + missed)) if (met + missed) else None,
+            "avg_cycle_hours": round(cycle_sum / cycle_n, 1) if cycle_n else None,
+        },
+        "targets": {**TARGET_HOURS, "default": DEFAULT_TARGET},
+        "volume_7d": vol,
+        "rows": rows,
+    }

@@ -461,6 +461,21 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .spark-cap { font-size: 11px; color: var(--faint); text-align: right; margin-bottom: 4px; }
 .spark { display: block; width: 180px; height: 46px; }
 
+/* ─────────────────────────── SLA & operations dashboard ─────────────────────────── */
+.stat .stat-sub { font-size: 11.5px; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+.stat .stat-sub .warn { color: var(--warn); }
+.stat .val.crit { color: var(--crit); }
+.stat.stat-crit { border-color: var(--crit-line); background: var(--crit-bg); }
+.sla-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-2); font-size: 12px; color: var(--faint); }
+.sla-clock { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+.sla-bar { height: 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }
+.sla-bar .fill { display: block; height: 100%; border-radius: 999px; transition: width 0.3s ease; }
+.sla-bar .fill.good { background: var(--good); }
+.sla-bar .fill.warn { background: var(--warn); }
+.sla-bar .fill.crit { background: var(--crit); }
+.sla-num { font-size: 11.5px; color: var(--ink-2); }
+.sla-num .faint { color: var(--faint); font-weight: 400; }
+
 /* ─────────────────────────── package tracker (requester status) ─────────────────────────── */
 .pkg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 12px 0 8px; }
 .pkg-step { text-align: center; position: relative; padding-top: 40px; }

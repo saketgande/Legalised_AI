@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "../../lib/auth";
 import {
-  IconBook, IconChat, IconDashboard, IconInbox, IconMail, IconPlus,
+  IconBook, IconChat, IconDashboard, IconGauge, IconInbox, IconMail, IconPlus,
   IconReview, IconShield, IconSignOut, IconUsers,
 } from "./Icons";
 
@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
     items: [
       { href: "/", label: "Dashboard", perm: null, Icon: IconDashboard },
       { href: "/inbox", label: "Legal inbox", perm: "request:read_all", Icon: IconInbox },
+      { href: "/sla", label: "SLA & metrics", perm: "request:read_all", Icon: IconGauge },
     ],
   },
   {

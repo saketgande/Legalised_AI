@@ -176,6 +176,35 @@ export type AuthUser = {
   suspended: boolean;
 };
 
+export type OpsRow = {
+  id: string;
+  ref: string;
+  counterparty: string;
+  requester: string;
+  lane: string | null;
+  direction: string;
+  state: string;
+  target_hours: number;
+  elapsed_hours: number | null;
+  cycle_hours: number | null;
+  status: "breached" | "at_risk" | "on_track" | "missed" | "met" | "cancelled" | null;
+};
+
+export type OpsSummary = {
+  totals: { total: number; in_flight: number; resolved: number; auto_resolved: number; cancelled: number };
+  deflection_rate: number;
+  sla: {
+    breached: number;
+    at_risk: number;
+    on_track: number;
+    compliance_rate: number | null;
+    avg_cycle_hours: number | null;
+  };
+  targets: Record<string, number>;
+  volume_7d: number[];
+  rows: OpsRow[];
+};
+
 // ——— token handling ———
 const TOKEN_KEY = "fd_token";
 let _token: string | null = typeof window !== "undefined" ? localStorage.getItem(TOKEN_KEY) : null;
@@ -320,6 +349,9 @@ export const api = {
   testMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox/test`, { method: "POST", headers: H() }).then(j<MailboxTestResult>),
   pollMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox/poll`, { method: "POST", headers: H() }).then(j<PollResult>),
   deleteMailbox: () => fetch(`${BASE}/api/admin/intake/mailbox`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean }>),
+
+  // ops metrics (SLA + deflection dashboard)
+  opsSummary: () => fetch(`${BASE}/api/ops/summary`, { cache: "no-store", headers: H() }).then(j<OpsSummary>),
 
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),

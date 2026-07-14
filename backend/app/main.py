@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, esign, inbound, intake, mailbox, meta, playbook, requests
+from .routers import admin, auth, esign, inbound, intake, mailbox, meta, metrics, playbook, requests
 
 log = logging.getLogger("frontdoor")
 
@@ -221,4 +221,5 @@ app.include_router(esign.router)
 app.include_router(playbook.router)
 app.include_router(playbook.list_router)
 app.include_router(mailbox.router)
+app.include_router(metrics.router)
 app.include_router(meta.router)

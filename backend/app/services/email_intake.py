@@ -42,6 +42,53 @@ def _first_supported_attachment(attachments: list[tuple[str, bytes]]) -> tuple[s
     return None
 
 
+_REF_RE = None  # compiled lazily
+
+
+def _try_thread_match(db: Session, *, org: str, subject: str, body: str,
+                      attachments, actor) -> IngestResult | None:
+    """If the message references one of OUR refs and that request is
+    WITH_COUNTERPARTY, this is their markup coming back — feed the negotiation
+    loop. Failures fall through to normal intake rather than dropping mail."""
+    global _REF_RE
+    import re
+    from sqlalchemy import select
+
+    from ..models import Request, RequestState
+    from .negotiation import NegotiationError, record_counterparty_return
+
+    if _REF_RE is None:
+        _REF_RE = re.compile(r"\bREQ-\d{4}-\d{3,6}\b")
+    refs = set(_REF_RE.findall(f"{subject}\n{body}"))
+    if not refs:
+        return None
+    r = db.execute(
+        select(Request).where(
+            Request.org_id == org, Request.ref.in_(sorted(refs)),
+            Request.state == RequestState.WITH_COUNTERPARTY,
+        )
+    ).scalars().first()
+    if r is None:
+        return None  # ref mentioned but nothing waiting on a return — normal intake
+
+    att = _first_supported_attachment(attachments or [])
+    text = body
+    if att is not None:
+        try:
+            text = extract_text(att[0], att[1])
+        except Exception:
+            text = body  # unreadable attachment -> try the body itself
+    try:
+        r = record_counterparty_return(db, r, body_text=text, actor=actor, source="email")
+    except NegotiationError:
+        return None  # e.g. body too short to be a document — treat as normal mail
+    except PlaybookResolutionError:
+        db.rollback()
+        return None
+    return IngestResult(created=True, classified="counterparty_return", request_id=r.id,
+                        ref=r.ref, direction=r.direction.value, counterparty=None)
+
+
 def ingest_email(
     db: Session, *, org: str, from_email: str, from_name: str | None = None,
     subject: str = "", body: str = "", attachments: list[tuple[str, bytes]] | None = None,
@@ -51,6 +98,14 @@ def ingest_email(
 
     requester = intake.get_or_create_person(db, org, from_name or from_email, from_email)
     actor = intake.Actor(None, ActorType.SYSTEM, actor_label)
+
+    # thread matching FIRST: a reply that names one of our refs while that
+    # request is sitting with the counterparty is their markup coming back —
+    # route it into the negotiation loop, never a duplicate ticket
+    threaded = _try_thread_match(db, org=org, subject=subject, body=body,
+                                 attachments=attachments, actor=actor)
+    if threaded is not None:
+        return threaded
 
     ai = get_ai_client()
     parsed = ai.parse_intake(f"{subject}\n{body}")

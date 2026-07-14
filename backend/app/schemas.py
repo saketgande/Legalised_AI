@@ -62,6 +62,10 @@ class ResolveAdviceIn(BaseModel):
     answer: str                            # the approved/edited answer text
 
 
+class CounterpartyReturnIn(BaseModel):
+    body_text: str                         # the full text of their returned markup
+
+
 class BulkActionIn(BaseModel):
     ids: list[str]
     action: str                            # "assign" | "snooze" | "unsnooze"
@@ -145,6 +149,7 @@ class RequestSummaryOut(BaseModel):
     esign_provider: str | None = None
     esign_status: str | None = None
     esign_envelope_id: str | None = None
+    round: int = 1
 
 
 class ProposedChangeOut(BaseModel):

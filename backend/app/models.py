@@ -49,6 +49,8 @@ class RequestState(str, enum.Enum):
     DRAFTED = "DRAFTED"
     IN_REVIEW = "IN_REVIEW"
     APPROVED = "APPROVED"
+    WITH_COUNTERPARTY = "WITH_COUNTERPARTY"  # sent for their review — the negotiation wait
+    RETURNED = "RETURNED"                    # their markup came back; new round spinning up
     OUT_FOR_SIGNATURE = "OUT_FOR_SIGNATURE"
     EXECUTED = "EXECUTED"
     FILED = "FILED"
@@ -304,6 +306,9 @@ class Request(Base):
     playbook_id: Mapped[str | None] = mapped_column(ForeignKey("playbook.id"), nullable=True)
     channel: Mapped[str] = mapped_column(String, default="FORM")  # FORM | SLACK | EMAIL | CHAT
     triage_reasons: Mapped[list] = mapped_column(JSON, default=list)
+    # negotiation round counter: 1 = the original draft/review; each counterparty
+    # return bumps it. Every round gets its own ReviewRun + RiskAssessment + ladder.
+    round: Mapped[int] = mapped_column(Integer, default=1)
 
     # queue operations (routing rules + triage cockpit)
     assigned_to_user_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
@@ -407,6 +412,7 @@ class ReviewRun(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     request_id: Mapped[str] = mapped_column(ForeignKey("request.id"), nullable=False)
     document_version_id: Mapped[str] = mapped_column(ForeignKey("document_version.id"), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, default=1)  # which negotiation round produced this
     status: Mapped[str] = mapped_column(String, default="COMPLETE")  # COMPLETE | ABSTAINED
     summary: Mapped[dict] = mapped_column(JSON, default=dict)  # {compliant, fallback, deviation, missing, novel}
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

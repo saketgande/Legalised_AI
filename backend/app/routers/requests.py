@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,7 @@ from ..schemas import (
     ApproveStepIn,
     AssignIn,
     BulkActionIn,
+    CounterpartyReturnIn,
     CreateAdviceIn,
     CreateRequestIn,
     RequestDetailOut,
@@ -139,6 +140,8 @@ _STAGE = {  # state -> (label, index 0..4, needs_you)
     RequestState.DRAFTED: ("Drafting", 1),
     RequestState.IN_REVIEW: ("In review", 2),
     RequestState.APPROVED: ("In review", 2),
+    RequestState.WITH_COUNTERPARTY: ("Sent to counterparty", 3),
+    RequestState.RETURNED: ("In review", 2),
     RequestState.OUT_FOR_SIGNATURE: ("Sent to counterparty", 3),
     RequestState.EXECUTED: ("Signed", 4),
     RequestState.FILED: ("Signed", 4),
@@ -227,6 +230,7 @@ def _summary(db: Session, r: Request) -> dict:
         "esign_provider": r.esign_provider,
         "esign_status": r.esign_status,
         "esign_envelope_id": r.esign_envelope_id,
+        "round": r.round or 1,
     }
 
 
@@ -603,12 +607,19 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
 
     label, idx = _STAGE.get(r.state, ("Requested", 0))
 
-    if r.state in (RequestState.IN_REVIEW,):
-        headline = "Being reviewed by legal — nothing needed from you."
-        detail = "A lawyer is checking a couple of terms before it goes out. Typically cleared within a day."
+    if r.state in (RequestState.IN_REVIEW, RequestState.RETURNED):
+        if (r.round or 1) > 1:
+            headline = f"Their comments came back — legal is reviewing (round {r.round})."
+            detail = "The counterparty proposed changes. Legal is checking them against our playbook before anything goes back out."
+        else:
+            headline = "Being reviewed by legal — nothing needed from you."
+            detail = "A lawyer is checking a couple of terms before it goes out. Typically cleared within a day."
     elif r.state == RequestState.APPROVED:
         headline = "Cleared review — sending to the counterparty."
         detail = "Your NDA is approved and about to be sent for signature."
+    elif r.state == RequestState.WITH_COUNTERPARTY:
+        headline = f"With {cp.name} for their review" + (f" — round {r.round}." if (r.round or 1) > 1 else ".")
+        detail = "They're reading our terms. If they propose changes, legal reviews them here — you don't need to do anything."
     elif r.state == RequestState.OUT_FOR_SIGNATURE:
         headline = f"Sent to {cp.name} for signature."
         detail = "We'll drop the signed copy here as soon as it's countersigned."
@@ -674,6 +685,83 @@ def approve_step(
     db.commit()
     db.refresh(r)
     return _detail(db, r)
+
+
+@router.post("/requests/{request_id}/send-to-counterparty", response_model=RequestDetailOut)
+def send_to_counterparty_route(
+    request_id: str,
+    user: User = Depends(require(Permission.REQUEST_SEND)), db: Session = Depends(get_db),
+):
+    """Send the approved paper to the counterparty for THEIR review — the
+    negotiation path. Signature is the separate convergence path (/send)."""
+    from ..services import intake as intake_svc
+    from ..services.negotiation import NegotiationError, send_to_counterparty
+
+    r = _authorize_org_write(user, db.get(Request, request_id))
+    if _type_info(db, r)[1] == "ADVICE":
+        raise HTTPException(409, "advice requests are resolved with an answer, not negotiated")
+    try:
+        r = send_to_counterparty(db, r, intake_svc.Actor(user.id, ActorType.USER, user.name))
+    except NegotiationError as e:
+        raise HTTPException(409, str(e))
+    return _detail(db, r, user)
+
+
+@router.post("/requests/{request_id}/counterparty-return", response_model=RequestDetailOut)
+def counterparty_return_route(
+    request_id: str, payload: CounterpartyReturnIn,
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
+    """Record the counterparty's returned markup: spins round N+1 — re-redline,
+    re-score, rebuilt ladder — on the same ticket."""
+    from ..services import intake as intake_svc
+    from ..services.negotiation import NegotiationError, record_counterparty_return
+    from ..services.playbooks import PlaybookResolutionError
+
+    _require_queue_ops(user)
+    r = _authorize_org_write(user, db.get(Request, request_id))
+    try:
+        r = record_counterparty_return(
+            db, r, body_text=payload.body_text,
+            actor=intake_svc.Actor(user.id, ActorType.USER, user.name), source="paste",
+        )
+    except NegotiationError as e:
+        raise HTTPException(409, str(e))
+    except PlaybookResolutionError as e:
+        db.rollback()
+        raise HTTPException(409, str(e))
+    return _detail(db, r, user)
+
+
+@router.post("/requests/{request_id}/counterparty-return/upload", response_model=RequestDetailOut)
+async def counterparty_return_upload_route(
+    request_id: str, file: UploadFile = File(...),
+    user: User = Depends(current_user), db: Session = Depends(get_db),
+):
+    """Upload variant of the return path (.docx / .pdf / .txt)."""
+    from ..services import intake as intake_svc
+    from ..services.extract import ExtractionError, extract_text
+    from ..services.negotiation import NegotiationError, record_counterparty_return
+    from ..services.playbooks import PlaybookResolutionError
+
+    _require_queue_ops(user)
+    r = _authorize_org_write(user, db.get(Request, request_id))
+    raw = await file.read()
+    try:
+        body_text = extract_text(file.filename or "upload", raw)
+    except ExtractionError as e:
+        raise HTTPException(400, str(e))
+    try:
+        r = record_counterparty_return(
+            db, r, body_text=body_text,
+            actor=intake_svc.Actor(user.id, ActorType.USER, user.name), source="upload",
+        )
+    except NegotiationError as e:
+        raise HTTPException(409, str(e))
+    except PlaybookResolutionError as e:
+        db.rollback()
+        raise HTTPException(409, str(e))
+    return _detail(db, r, user)
 
 
 @router.post("/requests/{request_id}/send", response_model=RequestDetailOut)

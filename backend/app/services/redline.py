@@ -250,7 +250,8 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
         "hold.term_months": request.term_months,
     }
 
-    run = ReviewRun(request_id=request.id, document_version_id=version.id)
+    run = ReviewRun(request_id=request.id, document_version_id=version.id,
+                    round=getattr(request, "round", 1) or 1)
     db.add(run)
     db.flush()
 

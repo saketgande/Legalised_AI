@@ -17,6 +17,7 @@ const GROUPS: Group[] = [
       { href: "/assistant", label: "Assistant", perm: "request:read_all", gl: "◆", c: C.em },
       { href: "/tabular", label: "Tabular Review", perm: "request:read_all", gl: "▦", c: C.tl },
       { href: "/editor", label: "Editor", perm: "request:read_all", gl: "✎", c: C.am },
+      { href: "/agent", label: "Agent", perm: "request:read_all", gl: "◈", c: C.pp },
       { href: "/inbox", label: "Legal Intake", perm: "request:read_all", gl: "◆", c: C.cy },
       { href: "/cockpit", label: "Triage Cockpit", perm: "request:read_all", gl: "◈", c: C.em },
       { href: "/workspace", label: "Ops Workspace", perm: "request:read_all", gl: "▦", c: C.pp },

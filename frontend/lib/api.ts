@@ -124,6 +124,9 @@ export type SlaLeg = {
 
 export type EditorGrounding = { rule_key: string; heading: string; preferred: string; url: string };
 
+export type AgentStep = { key: string; title: string };
+export type AgentStepResult = { key: string; status: "running" | "done"; result?: string; sources?: { title: string; url: string | null }[] };
+
 export type TabularDoc = {
   request_id: string;
   ref: string;
@@ -465,6 +468,55 @@ export const api = {
     }).then(j<{ token: string; user: AuthUser }>),
 
   me: () => fetch(`${BASE}/api/auth/me`, { headers: H(), cache: "no-store" }).then(j<AuthUser>),
+
+  // agentic workflow — plan -> steps -> streamed recommendation
+  agentRun: async (
+    goal: string,
+    requestId: string | null,
+    handlers: {
+      onPlan: (steps: AgentStep[]) => void;
+      onStep: (s: AgentStepResult) => void;
+      onDelta: (key: string, text: string) => void;
+      onDone?: () => void;
+    },
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/api/agent/run`, {
+      method: "POST",
+      headers: H({ "content-type": "application/json" }),
+      body: JSON.stringify({ goal, request_id: requestId }),
+    });
+    if (res.status === 401) {
+      setToken(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) window.location.href = "/login";
+      throw new AuthError("unauthenticated");
+    }
+    if (!res.ok || !res.body) {
+      let msg = await res.text();
+      try { msg = JSON.parse(msg).detail ?? msg; } catch {}
+      throw new Error(msg || "agent run failed");
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: { type: string; steps?: AgentStep[]; key?: string; status?: "running" | "done"; result?: string; sources?: { title: string; url: string | null }[]; text?: string };
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "plan") handlers.onPlan(evt.steps || []);
+        else if (evt.type === "step") handlers.onStep({ key: evt.key!, status: evt.status!, result: evt.result, sources: evt.sources });
+        else if (evt.type === "delta") handlers.onDelta(evt.key!, evt.text || "");
+        else if (evt.type === "done") handlers.onDone?.();
+      }
+    }
+  },
 
   // drafting editor — playbook-grounded draft/revise stream
   editorDraft: async (

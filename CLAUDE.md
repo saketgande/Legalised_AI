@@ -1,0 +1,311 @@
+# CLAUDE.md — Working notes for Claude Code sessions in Frontdoor
+
+> Read this and [README.md](./README.md) before changing anything. This file is
+> the running record of what Frontdoor is, the plan it's following, everything
+> built so far, and the architectural commitments future sessions must honor.
+
+---
+
+## Mission, in one paragraph
+
+**Frontdoor** is a legal front door **+ CLM**, wedged on NDAs. It closes the loop
+nobody else owns: a request comes in → it's classified and triaged → routed
+through the right approval ladder → an engine drafts the NDA from the company's
+playbook → a human governs each step → it's executed, filed, and its renewal is
+tracked — **every transition on a tamper-evident audit chain**. The value story
+is speed with governance: most NDAs handled fast, many without a lawyer, none
+without an audit trail. Deployed to Render as `Legalised_AI`
+(`saketgande/Legalised_AI`); the live frontend is `legalised-web.onrender.com`,
+API `legalised-api.onrender.com`.
+
+The differentiator is the **whole loop on one spine**: intake, drafting,
+redlining, approval, e-signature, filing, and renewal all hang off a single
+`Request` record and a single append-only `AuditEvent` ledger — not a pile of
+disconnected tools.
+
+---
+
+## The plan — where we started, what's done, what's left
+
+Frontdoor began as a **walking skeleton** (the thinnest outbound-NDA slice that
+proves the spine) and has grown outward one reviewable slice at a time. The demo
+must keep working end-to-end at every checkpoint.
+
+### ✅ Done
+
+**Core spine & foundation**
+- **Outbound NDA path**, end to end: `NEW → CLASSIFIED → ROUTED → DRAFTED →
+  IN_REVIEW/APPROVED → OUT_FOR_SIGNATURE → EXECUTED → FILED`.
+- **Deterministic triage** forking AUTO / ASSISTED / ESCALATED, returning the
+  *reasons* it fired (explainable automation).
+- **Generation by assembly** — the NDA is stitched from the playbook's
+  *preferred* clauses (lowest-hallucination path), stored as
+  `Document → DocumentVersion → Clause[]` with a content hash.
+- **Approval ladder assembled from triage** — deduped by rung (VP Legal, GC),
+  rung-gated so an attorney can't clear a GC-level deviation.
+- **Append-only, hash-chained `AuditEvent` ledger** — every mutation writes a
+  row whose hash folds in the previous row's; `GET /api/audit/verify` re-walks
+  and reports the first break. Header badge reads "✓ Audit chain intact".
+- **Inbound redline engine** (`/inbound`) — paste or upload (.docx/.pdf) a
+  counterparty NDA → segmented, classified against the playbook, checked by a
+  **hybrid** engine: deterministic validators for what LLMs get wrong (liability
+  cap / term months, governing-law jurisdiction, missing mandatory clauses) +
+  **semantic checks routed through Claude** (`services/ai.py`) with a keyword
+  fallback so it runs with no API key. Each finding is a **PENDING redline** (the
+  AgentDecision gate); nothing enters the counter-proposal until a human approves.
+- **Multi-channel intake** — form (`/new`), chatbot (`/chat`), email webhook
+  (`POST /api/intake/email-webhook`) — all funnel through one `services/intake`
+  core, so triage/drafting/redlining/audit are identical per channel.
+- **Auth + RBAC** — JWT email/password login, 8 roles, permission model, plus
+  **rung-gated approval** (a GC-rung deviation needs GC rank — else 403).
+  Requesters see only their own requests.
+- **Playbook admin + learning flywheel** (`/admin/playbook`) — manage clause
+  rules in-app; when a lawyer edits a proposed redline, one click adopts that
+  language as the rule's new preferred position (`playbook.rule.learned`).
+  Every change bumps the playbook version and is chain-sealed.
+- **Word add-in** (`/word-addin` + `word-addin/`) — Office.js task pane that runs
+  the open doc through the redline engine and inserts **tracked changes**.
+- **Real e-signature seam** — `send` routes through `get_esign_client()`:
+  DocuSign when `DOCUSIGN_*` env vars are set, else a stub that signs the demo
+  end-to-end. Completion arrives via the HMAC-verified `POST /api/esign/webhook`.
+- **Production hardening** — fail-loud secret guards, login rate-limiting, 401
+  auto-logout, sanitized error handling, deep health checks; **Alembic** owns the
+  schema (no more `create_all`/startup ALTERs).
+
+**Built this session**
+- **Multi-playbook support** — org-default + named playbooks; per-request and
+  per-mailbox selection; resolver picks specific-if-named else org-default,
+  always org-scoped. (Fixed a cross-org IDOR found in review.)
+- **Real email polling** — `services/email_poller.py` drains a configured IMAP
+  inbox on a cadence; each message runs the same intake pipeline as the webhook.
+  Credentials sealed with an `AUTH_SECRET`-derived keystream (dev-grade). A live
+  Gmail intake account is connected on production.
+- **UI/UX redesign** — a "refined-enterprise" shell (AppShell sidebar, light/dark
+  tokens in `globals.css`) plus genuinely distinct *layouts* per surface:
+  **Document Desk** redline (clause rail + serif doc + margin comments),
+  **triage table** inbox, **morning-brief** home with sparkline, **package
+  status tracker** for requesters, **guided intake** with live auto-approve
+  prediction.
+- **SLA & deflection dashboard** (`/sla`) — deflection rate, SLA compliance
+  against per-lane turnaround targets, average cycle time, 7-day volume, and
+  per-request SLA posture. The SLA clock stops at the **immutable ledger approval
+  event** (`request.approved`/`request.auto_approved`), never `updated_at`.
+  Adversarially reviewed; 4 bugs fixed.
+- **CLM half — contract registry + renewal tracking** (`/contracts`) — executed
+  NDAs become tracked contracts (`executed_at`, `expires_at = executed_at +
+  term`, backfilled from the ledger), surfaced with renewal posture (active /
+  expiring / expired / renewed) and one-click renewal that spawns a fresh request
+  through the intake pipeline, linked via `renewed_from_id`. The requester status
+  page now shows the real expiry date — the "renewal is tracked" copy is finally
+  a fact. Adversarially reviewed; 4 bugs fixed (idempotent renewal via unique
+  index + atomic link, non-destructive renew errors, SLA-KPI isolation of demo
+  contracts).
+
+### ⏳ Not yet built (next slices)
+1. **Real DocuSign** — the `send → executed` step is stubbed. The seam
+   (`get_esign_client()`, the HMAC webhook) is in place; wiring a real provider
+   is the natural productionize step.
+2. **Design sweep** of the older surfaces (`/inbound`, `/chat`, `/email-sim`,
+   `/admin`, `/admin/playbook`, `/login`) to match the redesigned core.
+3. **OCR for scanned PDFs** — image-only PDFs error with a clear message today.
+4. **M365 Graph email polling** — IMAP polling covers the need; a Graph-native
+   poller would call the same intake adapter per message (no pipeline change).
+
+---
+
+## Stack & layout
+
+| Layer | Tech |
+|---|---|
+| Backend | FastAPI + SQLAlchemy 2.0 (sync) |
+| Database | Postgres 16 (Neon in prod), Alembic migrations |
+| Frontend | Next.js 14 (App Router) + TypeScript |
+| AI | Anthropic Claude (optional — deterministic assembly is the default) |
+| Deploy | Render (`Legalised_AI`): web + api services, `render.yaml` |
+
+```
+backend/
+  app/
+    routers/     HTTP surface: auth, requests, inbound, intake, esign, playbook,
+                 mailbox, metrics (SLA), contracts (CLM), admin, meta
+    services/    core logic: intake, triage, generation, redline, approvals,
+                 ai, audit, esign, email_poller, email_intake, secrets,
+                 playbooks, metrics, contracts, extract, ratelimit
+    models.py    SQLAlchemy models (single Request spine + AuditEvent ledger)
+    schemas.py   Pydantic response models
+    permissions.py  Permission enum + ROLE_PERMISSIONS
+    main.py      app wiring, startup (migrations + idempotent demo helpers + poller)
+    seed.py      org, users, counterparties, playbook (no Request rows)
+  alembic/versions/  migration chain (see below)
+frontend/
+  app/           App Router pages + components (AppShell, Sidebar, Icons, …)
+  lib/           api.ts (typed client), auth.ts
+word-addin/      Office.js task pane
+```
+
+### Migration chain (Alembic owns the schema; runs on startup)
+```
+749f2185531e  baseline_schema
+7fcbc30669ee  esign_envelope_tracking_on_request
+76632dab1ed8  unique_playbook_rule_key_per_playbook
+a1b2c3d4e5f6  request_playbook_link
+b2c3d4e5f6a7  email_mailbox
+c3d4e5f6a7b8  contract_lifecycle (executed_at, expires_at, renewed_from_id)
+d4e5f6a7b8c9  unique_renewed_from (partial unique index — one renewal per contract)
+```
+New schema changes are ordinary Alembic revisions chained from the current head.
+Never re-edit a migration that has shipped to production — add a new one on top.
+
+---
+
+## Non-negotiable architectural commitments
+
+1. **One `Request` spine.** Intake, redline, approval, e-sign, filing, and
+   renewal all attach to a single `Request` row. Don't fork parallel tables.
+2. **The audit row is the legal anchor.** Every state-changing path writes an
+   `AuditEvent` via `services/audit.record_audit`. The ledger is append-only and
+   hash-chained; tamper detection re-computes hashes from stored fields,
+   independent of any trigger. Never UPDATE/DELETE an audit row — correct with a
+   new one.
+3. **The ledger is the source of truth for "when did X happen."** Denormalized
+   timestamps on `Request` (`updated_at`, etc.) drift. When a computation needs
+   the moment a state was *first* reached (SLA resolution clock; contract
+   `executed_at` backfill), read the earliest matching `AuditEvent`, not the
+   mutable column. This is why the SLA cycle-time and the contract expiry are
+   both anchored to `request.approved` / `request.executed` ledger events.
+4. **Assemble, don't free-generate.** Outbound NDAs are built from pre-approved
+   clauses, so the AUTO path is on-playbook by construction and safe to
+   auto-send. Claude is used for *judgement* (semantic redline checks, extraction),
+   never to hallucinate contract text.
+5. **Claude is optional.** The whole product runs with no `ANTHROPIC_API_KEY` —
+   generation falls back to deterministic assembly, semantic checks to a keyword
+   heuristic. The demo never breaks.
+6. **AgentDecision gate.** Every AI-proposed change (inbound redline finding)
+   enters PENDING and cannot reach the counter-proposal until a human approves.
+   Conservative AI governance is the product, not a future feature.
+7. **Provider-abstracted seams.** E-signature (`get_esign_client()`), M365/IMAP
+   intake, and the AI client are all behind interfaces. Swapping a provider is a
+   new implementation behind the same seam — no caller moves.
+8. **Every mutation is permission-gated** through `require(Permission.X)` on the
+   route, with rung checks where approval rank matters. No "trust the client".
+9. **The demo never breaks.** Every change keeps the end-to-end flow working:
+   request an NDA → AUTO auto-approves & files; 36-month/foreign-jurisdiction →
+   ASSISTED → clear the ladder → send → sign → Filed → tracked in `/contracts`.
+
+---
+
+## Permission model
+
+The `Permission` enum in `backend/app/permissions.py` is the single source of
+truth; roles pick from it in `ROLE_PERMISSIONS`. Current permissions:
+
+`request:create`, `request:read_all`, `request:read_own`, `review:decide`,
+`request:send`, `playbook:read`, `playbook:manage`, `intake:manage`,
+`admin:manage_users`.
+
+Add new values, never repurpose existing ones (breaks the seeded roles). Gate
+both the UI affordance and the server mutation.
+
+---
+
+## Demo data discipline
+
+- `seed.py` creates the org, 6 users, counterparties, and the playbook — **no
+  `Request` rows**. Demo requests accumulate at runtime through the real intake
+  flow.
+- Idempotent startup helpers in `main.py` (`_ensure_demo_playbooks`,
+  `_ensure_demo_contracts`) add demonstrable fixtures guarded by name/ref, and
+  only ever add or self-heal — never destructively touch existing rows.
+- **Demo contracts carry `channel="SEED"`** (pre-platform historical) so
+  `ops_metrics` excludes them from the SLA/deflection KPIs — a fabricated
+  instant-resolve must not distort the real ops picture. Any future
+  synthetic-but-resolved fixtures must do the same.
+- Auto-create / backfill patterns belong in seed + dev-mode fallbacks only.
+  Production runtime code fails loud on missing references.
+
+---
+
+## House rules for future sessions
+
+- **Ship one reviewable slice per change**, with the demo working at every
+  checkpoint. Keep commits focused.
+- **All schema changes are Alembic migrations** chained from head. Never
+  re-edit a shipped migration; never `create_all` or ALTER at startup.
+- **New backend logic goes in `services/`**, exposed through a thin router.
+  Routers gate permissions and translate errors to HTTP; services hold the logic.
+- **Frontend talks to the API only through `frontend/lib/api.ts`** (typed
+  client). New surfaces reuse the AppShell + `globals.css` design tokens and the
+  existing atoms (`.stat`, `.seg`, `.tbl`, `.pill`, `.sla-clock`, `.notice`).
+- **Adversarially review substantive features before calling them done** — the
+  SLA and CLM slices each went through a multi-dimension review (correctness,
+  edge cases, integration) with every finding independently verified, then fixes
+  applied and re-deployed. Prefer this over trusting a green build.
+- **Verify end-to-end, not just tests** — drive the real flow (screenshots
+  against the running stack, authenticated API round-trips) before shipping.
+- **Never commit the model identifier**, secrets, or the Gmail app password to
+  the repo. Screenshot scripts and recorded media stay untracked.
+- Push to the working branch; open a PR only when explicitly asked.
+
+---
+
+## Local development
+
+```bash
+docker compose up -d postgres          # or point DATABASE_URL at any Postgres
+
+cd backend
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+alembic upgrade head                   # also runs on app startup
+python -m app.seed                     # org, users, counterparties, playbook
+uvicorn app.main:app --reload --port 8000
+
+cd ../frontend
+npm install
+cp .env.local.example .env.local
+npm run dev                            # http://localhost:3000
+```
+
+Demo logins (password `demo1234`, all `@northwind.example`): `admin@` /
+`priya.nair@` (gc) / `dana.osei@` (vp_legal) / `marcus.reid@` (attorney) /
+`sam.carter@` (requester) / `val.ng@` (viewer).
+
+Backend tests: `cd backend && . .venv/bin/activate && pytest` (triage fork,
+audit hashing, and per-feature suites — 65 passing).
+
+Set `ANTHROPIC_API_KEY` to turn on real Claude semantic analysis; without it the
+deterministic/heuristic fallbacks keep everything working.
+
+---
+
+## Changelog (newest first)
+
+Each entry landed as one commit, demo green at every step.
+
+| Commit | What |
+|---|---|
+| `ca40293` | Fix CLM review findings — idempotent renewal (unique index + atomic link), non-destructive renew errors, SEED-channel SLA isolation |
+| `bf869c3` | **CLM half**: contract registry + renewal tracking (`/contracts`, `executed_at`/`expires_at`/`renewed_from_id`, ledger backfill) |
+| `151be19` | Fix SLA review findings — ledger-anchored cycle time, reconciling in-flight breakdown, unit formatting |
+| `4ee1a12` | **SLA & deflection dashboard** (`/sla`, `/api/ops/summary`) |
+| `84f8a68` | Rebuild home / new-request / status-tracker to match Document Desk |
+| `51bc425` | Rebuild review screen as **Document Desk** + inbox as **triage table** |
+| `0a69e33` | **Email intake**: poll a real IMAP legal inbox into the pipeline |
+| `2b0fb10` | **Multi-playbook** support per organisation |
+| `1ed325f` | Redesign UI to refined-enterprise premium SaaS shell |
+| `48d5aa3` | Fix playbook review findings (cross-org IDOR + governance + dup key) |
+| `fd30887` | Playbook admin UI + learning flywheel |
+| `9dce1d1` | Word add-in: redline engine in an Office.js task pane |
+| `2743fbd` | Real e-signature: DocuSign behind the esign seam + webhook |
+| `cc2bc52` | Harden 2/2: Alembic migrations replace create_all + startup ALTERs |
+| `b6b02ec` | Harden 1/2: prod secret guards, rate-limiting, 401 auto-logout, health |
+| `e79e0ee` | Multi-channel intake: email webhook + chatbot through one pipeline |
+| `965397e` | .docx / PDF ingestion for inbound review |
+| `e58c289` | Real LLM semantic checks via Claude with heuristic fallback |
+| `8b3c35e` | Auth + RBAC: JWT login, 8-role model, rung-gated approvals |
+| `57a12d1` | **Inbound redline engine** + gated AgentDecisions + redline cockpit |
+| `2c1f8c8` | Deployment config: Dockerfile, render.yaml, env-driven CORS, seed-on-start |
+| `71501bc` | **Walking skeleton**: outbound-NDA spine (FastAPI + Next.js + Postgres) |
+
+When you add a feature, add a row here and update the plan's Done/Not-yet lists.

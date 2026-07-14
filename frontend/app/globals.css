@@ -396,4 +396,50 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .seg button { padding: 6px 14px; border-radius: 7px; border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 550; cursor: pointer; }
 .seg button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-sm); }
 
+/* ─────────────────────────── Document Desk (inbound review) ─────────────────────────── */
+.desk { display: grid; grid-template-columns: 174px minmax(0, 1fr) 344px; gap: 20px; align-items: start; margin-top: 18px; }
+@media (max-width: 1080px) { .desk { grid-template-columns: 1fr; } .desk-outline { display: none; } }
+
+.desk-outline { position: sticky; top: 72px; align-self: start; display: flex; flex-direction: column; gap: 1px; max-height: calc(100vh - 92px); overflow: auto; }
+.desk-ol-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 2px 8px 8px; }
+.desk-ol-link { display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 8px; color: var(--muted); font-size: 13px; }
+.desk-ol-link:hover { background: var(--surface-hover); color: var(--ink); }
+.desk-ol-link .num { font-family: var(--mono); font-size: 11px; color: var(--faint); width: 13px; flex: none; }
+.desk-ol-link .nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.desk-ol-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line); flex: none; }
+.desk-ol-link.dev .desk-ol-dot { background: var(--crit); box-shadow: 0 0 0 3px var(--crit-bg); }
+.desk-ol-link.dev { color: var(--ink); }
+.desk-ol-missing { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 9px 10px; border-radius: 9px; border: 1px dashed var(--warn-line); background: var(--warn-bg); color: var(--warn); font-size: 12.5px; font-weight: 600; }
+.desk-ol-missing b { font-variant-numeric: tabular-nums; }
+
+.desk-paper { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 30px 42px 44px; }
+.desk-paper-head { text-align: center; padding-bottom: 18px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; }
+.desk-paper-head h1 { font-family: var(--serif); font-weight: 600; font-size: 20px; letter-spacing: -0.01em; }
+.desk-paper-head .parties { font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--muted); margin-top: 5px; }
+.desk-clause { padding: 18px 0 6px; scroll-margin-top: 80px; }
+.desk-clause h2 { font-family: var(--serif); font-weight: 600; font-size: 15.5px; display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.desk-clause h2 .cn { font-family: var(--mono); font-size: 12px; color: var(--faint); font-weight: 600; }
+.desk-clause p { font-family: var(--serif); font-size: 14.5px; line-height: 1.72; color: var(--ink-2); margin: 0; }
+.desk-clause.flagged { padding-left: 16px; margin-left: -18px; border-left: 3px solid var(--accent); background: linear-gradient(90deg, var(--accent-weak), transparent 46%); border-radius: 0 8px 8px 0; }
+.desk-anchor { font-size: 9.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent-ink); background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); padding: 1px 6px; border-radius: 5px; margin-left: auto; }
+.desk-inline-redline { font-family: var(--serif); font-size: 12.5px; line-height: 1.65; background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 9px; padding: 10px 13px; margin-top: 11px; }
+.desk-inline-redline del { color: var(--crit); text-decoration-color: color-mix(in srgb, var(--crit) 55%, transparent); }
+.desk-inline-redline ins { text-decoration: none; color: var(--good); background: var(--good-bg); border-radius: 3px; padding: 0 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.desk-missing { margin-top: 28px; padding: 16px 18px; border: 1px dashed var(--warn-line); background: var(--warn-bg); border-radius: 12px; scroll-margin-top: 80px; }
+.desk-missing-h { font-size: 13px; font-weight: 650; color: var(--warn); margin-bottom: 10px; }
+.desk-missing-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.desk-missing-chip { font-size: 12px; font-weight: 550; color: var(--warn); background: var(--surface); border: 1px solid var(--warn-line); border-radius: 999px; padding: 4px 10px; }
+.desk-margin { display: flex; flex-direction: column; gap: 12px; }
+.desk-margin-label { font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); padding: 0 2px 2px; }
+
+/* ─────────────────────────── triage table extras ─────────────────────────── */
+.tbl .dir-b { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.tbl .dir-b.in { color: var(--ink-2); }
+.tbl .age { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tbl .age.over { color: var(--crit); font-weight: 650; }
+.tbl tr.sev td:first-child { box-shadow: inset 3px 0 0 var(--crit); }
+.tbl .cp .sub { display: block; font-weight: 400; font-size: 11px; color: var(--faint); margin-top: 1px; }
+.tbl .todo-act { color: var(--accent); font-weight: 600; }
+.tbl .todo-ready { color: var(--good); font-weight: 600; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

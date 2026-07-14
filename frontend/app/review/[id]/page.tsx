@@ -172,74 +172,124 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       </div>
 
       {inbound ? (
-        /* ===================== INBOUND REDLINE COCKPIT ===================== */
-        <>
-          <div className="summary-chips" style={{ marginTop: 14 }}>
-            <span className="schip dev"><b>{r.review!.summary.deviation ?? 0}</b> deviations</span>
-            <span className="schip miss"><b>{r.review!.summary.missing ?? 0}</b> missing clauses</span>
-            <span className="schip ok"><b>{r.review!.summary.compliant ?? 0}</b> on-playbook</span>
-            {r.review!.required_rungs.length > 0 && (
-              <span className="schip" style={{ marginLeft: "auto" }}>
-                needs sign-off: {r.review!.required_rungs.map((x) => x.replace(/_/g, " ")).join(" · ")}
-              </span>
-            )}
-          </div>
+        /* ===================== DOCUMENT DESK (inbound review) ===================== */
+        (() => {
+          const clauses = r.document?.clauses ?? [];
+          const changes = r.review!.changes;
+          const devBySec: Record<string, ProposedChange> = {};
+          changes.forEach((c) => { if (c.section_no && c.finding !== "MISSING") devBySec[c.section_no] = c; });
+          const missing = changes.filter((c) => c.finding === "MISSING");
+          const canLearn = user?.permissions.includes("playbook:manage") ?? false;
+          return (
+            <>
+              <div className="summary-chips" style={{ marginTop: 14 }}>
+                <span className="schip dev"><b>{r.review!.summary.deviation ?? 0}</b> deviations</span>
+                <span className="schip miss"><b>{r.review!.summary.missing ?? 0}</b> missing clauses</span>
+                <span className="schip ok"><b>{r.review!.summary.compliant ?? 0}</b> on-playbook</span>
+                {r.review!.required_rungs.length > 0 && (
+                  <span className="schip" style={{ marginLeft: "auto" }}>
+                    needs sign-off: {r.review!.required_rungs.map((x) => x.replace(/_/g, " ")).join(" · ")}
+                  </span>
+                )}
+              </div>
 
-          <div className="cockpit-grid" style={{ marginTop: 16 }}>
-            <div>
-              {r.review!.changes.map((c) => (
-                <ChangeCard key={c.id} c={c} busy={busy} canApprove={canClear(c.triggered_rung)}
-                  canLearn={user?.permissions.includes("playbook:manage") ?? false}
-                  onLearn={() => learn(c.id, c.rule_key)}
-                  onDecide={(a, t) => act(() => api.decideChange(c.id, a, t))} />
-              ))}
-            </div>
-
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div className="card" style={{ padding: 16 }}>
-                <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>
+              {/* action strip */}
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
                 {canSend && (
-                  <button className="btn primary" style={{ width: "100%" }} disabled={busy}
-                    onClick={() => act(() => api.send(params.id))}>Send counter-proposal</button>
+                  <button className="btn primary" disabled={busy} onClick={() => act(() => api.send(params.id))}>
+                    Send counter-proposal →
+                  </button>
                 )}
-                {outForSig && (
-                  <>
-                    <div className="notice info" style={{ marginBottom: 10 }}>
-                      Counter-proposal sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
-                    </div>
-                    {r.esign_envelope_id && <div className="mono muted" style={{ fontSize: 11, marginBottom: 10 }}>envelope {r.esign_envelope_id}</div>}
-                    {r.esign_provider !== "docusign" && (
-                      <button className="btn" style={{ width: "100%" }} disabled={busy}
-                        onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
-                    )}
-                  </>
-                )}
-                {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}.</div>}
                 {!canSend && !outForSig && !filed && (
-                  <div className="muted" style={{ fontSize: 12.5 }}>Decide every proposed change to unlock the counter-proposal.</div>
+                  <span className="muted" style={{ fontSize: 12.5 }}>Decide every proposed change to unlock the counter-proposal.</span>
                 )}
-                <button className="btn ghost" style={{ width: "100%", marginTop: 10 }}
-                  onClick={() => setShowCounter((s) => !s)}>
+                <button className="btn ghost sm" onClick={() => setShowCounter((s) => !s)}>
                   {showCounter ? "Hide" : "Preview"} counter-proposal
                 </button>
-                {err && <div className="notice warn" style={{ marginTop: 10 }}>{err}</div>}
+                {err && <span className="notice warn" style={{ padding: "6px 10px" }}>{err}</span>}
               </div>
 
-              <div className="card" style={{ padding: 16 }}>
-                <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
-                <Timeline events={r.timeline} />
-              </div>
-            </div>
-          </div>
+              {outForSig && (
+                <div className="notice info" style={{ marginTop: 12 }}>
+                  Counter-proposal sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
+                  {r.esign_provider !== "docusign" && (
+                    <button className="btn sm" style={{ marginLeft: 12 }} disabled={busy}
+                      onClick={() => act(() => api.simulateSignature(params.id))}>Simulate signature (dev)</button>
+                  )}
+                </div>
+              )}
+              {filed && <div className="notice good" style={{ marginTop: 12 }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}.</div>}
 
-          {showCounter && (
-            <div className="card" style={{ padding: "22px 26px", marginTop: 16 }}>
-              <div className="kicker" style={{ marginBottom: 8 }}>Counter-proposal preview (approved edits applied)</div>
-              <hr className="hr" />
-              <Md md={r.review!.counter_markdown} redline />
-            </div>
-          )}
-        </>
+              <div className="desk">
+                {/* clause outline */}
+                <aside className="desk-outline">
+                  <div className="desk-ol-label">Clauses</div>
+                  {clauses.map((c) => (
+                    <a key={c.id} href={`#cl-${c.section_no}`} className={`desk-ol-link ${devBySec[c.section_no] ? "dev" : ""}`}>
+                      <span className="desk-ol-dot" /><span className="num">{c.section_no}</span>
+                      <span className="nm">{c.heading}</span>
+                    </a>
+                  ))}
+                  {missing.length > 0 && (
+                    <a href="#missing" className="desk-ol-missing"><b>{missing.length}</b> missing clauses</a>
+                  )}
+                </aside>
+
+                {/* the document */}
+                <div className="desk-paper">
+                  <div className="desk-paper-head">
+                    <h1>{r.nda_type === "MUTUAL" ? "Mutual" : "One-Way"} Non-Disclosure Agreement</h1>
+                    <div className="parties">their paper — {r.counterparty_name}</div>
+                  </div>
+                  {clauses.map((c) => {
+                    const dev = devBySec[c.section_no];
+                    return (
+                      <section key={c.id} id={`cl-${c.section_no}`} className={`desk-clause ${dev ? "flagged" : ""}`}>
+                        <h2><span className="cn">{c.section_no}.</span> {c.heading}{dev && <span className="desk-anchor">REDLINE</span>}</h2>
+                        <p>{c.body_text}</p>
+                        {dev && (dev.before_text || dev.after_text) && (
+                          <div className="desk-inline-redline">
+                            {dev.before_text && <del>{dev.before_text}</del>}{dev.before_text && dev.after_text ? " " : ""}{dev.after_text && <ins>{dev.after_text}</ins>}
+                          </div>
+                        )}
+                      </section>
+                    );
+                  })}
+                  {missing.length > 0 && (
+                    <div id="missing" className="desk-missing">
+                      <div className="desk-missing-h">{missing.length} standard clauses are absent from their paper</div>
+                      <div className="desk-missing-list">
+                        {missing.map((m) => <span key={m.id} className="desk-missing-chip">{m.heading}</span>)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* margin comments = the proposed redlines */}
+                <div className="desk-margin">
+                  <div className="desk-margin-label">Open redlines · {changes.length}</div>
+                  {changes.map((c) => (
+                    <ChangeCard key={c.id} c={c} busy={busy} canApprove={canClear(c.triggered_rung)}
+                      canLearn={canLearn} onLearn={() => learn(c.id, c.rule_key)}
+                      onDecide={(a, t) => act(() => api.decideChange(c.id, a, t))} />
+                  ))}
+                  <div className="card card-pad" style={{ marginTop: 4 }}>
+                    <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
+                    <Timeline events={r.timeline} />
+                  </div>
+                </div>
+              </div>
+
+              {showCounter && (
+                <div className="card" style={{ padding: "22px 26px", marginTop: 16 }}>
+                  <div className="kicker" style={{ marginBottom: 8 }}>Counter-proposal preview (approved edits applied)</div>
+                  <hr className="hr" />
+                  <Md md={r.review!.counter_markdown} redline />
+                </div>
+              )}
+            </>
+          );
+        })()
       ) : (
         /* ===================== OUTBOUND (document + ladder) ===================== */
         <div className="cockpit-grid" style={{ marginTop: 20 }}>

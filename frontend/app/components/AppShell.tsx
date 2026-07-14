@@ -32,9 +32,7 @@ function ThemeToggle() {
   useEffect(() => {
     const saved = (typeof localStorage !== "undefined" && localStorage.getItem("fd-theme")) as
       | "light" | "dark" | null;
-    const initial =
-      saved ??
-      (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const initial = saved ?? "dark";   // AEGIS Aurora (dark) is the default look
     setTheme(initial);
     document.documentElement.setAttribute("data-theme", initial);
   }, []);
@@ -52,6 +50,18 @@ function ThemeToggle() {
   );
 }
 
+function LiveClock() {
+  const [now, setNow] = useState<string>("");
+  useEffect(() => {
+    const tick = () => setNow(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, []);
+  const date = new Date().toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return <span className="tb-clock">{now} · {date}</span>;
+}
+
 function TopBar() {
   const path = usePathname();
   const { user } = useAuth();
@@ -62,11 +72,16 @@ function TopBar() {
   }, [path, user]);
   return (
     <header className="topbar">
-      <span className="tb-title">{titleFor(path)}</span>
+      <span>
+        <span className="tb-eyebrow">Operations</span>
+        <div className="tb-title">{titleFor(path)}</div>
+      </span>
       <span className="spacer" />
+      <span className="tb-live"><span className="d" /> Live</span>
+      <LiveClock />
       {chain && (
         <span className="chip-verify" title={`${chain.count} audit events`}>
-          {chain.intact ? "✓ Audit chain intact" : "✕ Audit chain broken"}
+          {chain.intact ? "✓ Chain intact" : "✕ Chain broken"}
         </span>
       )}
       <ThemeToggle />

@@ -2,40 +2,39 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "../../lib/auth";
-import {
-  IconBook, IconChat, IconDashboard, IconGauge, IconInbox, IconMail, IconPlus,
-  IconRenew, IconReview, IconShield, IconSignOut, IconUsers,
-} from "./Icons";
+import { IconSignOut } from "./Icons";
 
-type Item = { href: string; label: string; perm: string | null; Icon: (p: any) => JSX.Element };
+// Aurora palette glyphs + colours, mirroring legal_intake/apps/web/src/data/nav.js
+const C = { em: "#E8793B", bl: "#6B8EC4", tl: "#6BA4A4", am: "#E0B34A", rd: "#C8463D", pp: "#A06C9A", cy: "#6BA4A4" };
+type Item = { href: string; label: string; perm: string | null; gl: string; c: string };
 type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
     label: "Workspace",
     items: [
-      { href: "/", label: "Dashboard", perm: null, Icon: IconDashboard },
-      { href: "/inbox", label: "Legal inbox", perm: "request:read_all", Icon: IconInbox },
-      { href: "/contracts", label: "Contracts", perm: "request:read_all", Icon: IconRenew },
-      { href: "/sla", label: "SLA & metrics", perm: "request:read_all", Icon: IconGauge },
+      { href: "/", label: "Mission Control", perm: null, gl: "◎", c: C.em },
+      { href: "/inbox", label: "Legal Intake", perm: "request:read_all", gl: "◆", c: C.cy },
+      { href: "/contracts", label: "Contracts", perm: "request:read_all", gl: "▤", c: C.bl },
+      { href: "/sla", label: "SLA & Operations", perm: "request:read_all", gl: "◉", c: C.am },
     ],
   },
   {
     label: "Intake",
     items: [
-      { href: "/new", label: "New request", perm: "request:create", Icon: IconPlus },
-      { href: "/chat", label: "Ask legal", perm: "request:create", Icon: IconChat },
-      { href: "/inbound", label: "Review their paper", perm: "request:read_all", Icon: IconReview },
-      { href: "/email-sim", label: "Email intake", perm: "request:read_all", Icon: IconMail },
+      { href: "/new", label: "New Request", perm: "request:create", gl: "＋", c: C.em },
+      { href: "/chat", label: "Ask Legal", perm: "request:create", gl: "◈", c: C.tl },
+      { href: "/inbound", label: "Review Their Paper", perm: "request:read_all", gl: "▧", c: C.bl },
+      { href: "/email-sim", label: "Email Intake", perm: "request:read_all", gl: "▩", c: C.tl },
     ],
   },
   {
-    label: "Administration",
+    label: "Platform",
     items: [
-      { href: "/admin/playbook", label: "Playbook", perm: "playbook:manage", Icon: IconBook },
-      { href: "/admin/workflows", label: "Workflows", perm: "intake:manage", Icon: IconGauge },
-      { href: "/admin/routing", label: "Routing rules", perm: "intake:manage", Icon: IconShield },
-      { href: "/admin", label: "Users & roles", perm: "admin:manage_users", Icon: IconUsers },
+      { href: "/admin/playbook", label: "Playbook", perm: "playbook:manage", gl: "▦", c: C.am },
+      { href: "/admin/workflows", label: "Workflows", perm: "intake:manage", gl: "▷", c: C.tl },
+      { href: "/admin/routing", label: "Routing Rules", perm: "intake:manage", gl: "▶", c: C.pp },
+      { href: "/admin", label: "Users & Roles", perm: "admin:manage_users", gl: "◈", c: C.bl },
     ],
   },
 ];
@@ -55,7 +54,7 @@ export function Sidebar() {
     <aside className="sidebar">
       <Link href="/" className="sb-brand">
         <span className="mk">F</span>
-        <span className="nm">Frontdoor</span>
+        <span className="nm">Frontdoor<small>LEGAL MISSION CONTROL</small></span>
       </Link>
 
       <nav className="sb-nav">
@@ -65,12 +64,15 @@ export function Sidebar() {
           return (
             <div key={g.label}>
               <div className="sb-group-label">{g.label}</div>
-              {items.map(({ href, label, Icon }) => (
-                <Link key={href} href={href} className={`sb-link ${active(href) ? "active" : ""}`}>
-                  <Icon />
-                  <span>{label}</span>
-                </Link>
-              ))}
+              {items.map(({ href, label, gl, c }) => {
+                const on = active(href);
+                return (
+                  <Link key={href} href={href} className={`sb-link ${on ? "active" : ""}`}>
+                    <span className="gl" style={{ color: on ? "var(--accent)" : c }}>{gl}</span>
+                    <span>{label}</span>
+                  </Link>
+                );
+              })}
             </div>
           );
         })}

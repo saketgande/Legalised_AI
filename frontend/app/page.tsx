@@ -62,11 +62,11 @@ function MorningBrief({ rows, name }: { rows: RequestSummary[]; name: string }) 
   return (
     <div>
       <div className="page-head">
-        <p className="kicker">Legal front door · today</p>
-        <h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {name}.</h1>
+        <p className="kicker">Operations · Legal Front Door + CLM</p>
+        <h1>Mission control for every legal request — <em style={{ fontStyle: "italic", color: "var(--teal)" }}>triaged, drafted, resolved</em>.</h1>
         <p className="sub">
           <span className="pill accent" style={{ marginRight: 8, verticalAlign: "middle" }}>✦ AI summary</span>
-          <b>{active} active requests</b> · <b>{decisions.length} need you</b>
+          Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, {name} · <b>{active} active requests</b> · <b>{decisions.length} need you</b>
           {critical ? <> · {critical} is your critical path.</> : " · you’re all clear."}
         </p>
       </div>

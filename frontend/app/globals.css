@@ -3,111 +3,72 @@
    Sidebar shell · soft-shadow cards · cool-grey neutrals · indigo accent · Inter
    ============================================================================ */
 
+/* ═══ AEGIS Aurora — institutional legal-ops terminal (the default look) ═══ */
 :root {
-  /* neutrals (cool grey) */
-  --bg: #f6f7fb;
-  --surface: #ffffff;
-  --surface-2: #f9fafc;
-  --surface-hover: #f4f6f9;
-  --sidebar: #ffffff;
-  --ink: #101828;
-  --ink-2: #1f2a37;
-  --muted: #667085;
-  --faint: #98a2b3;
-  --line: #e8ebf0;
-  --line-2: #f0f2f5;
-  --hairline: var(--line);   /* legacy alias — resolves lazily to the active --line */
+  --bg: #0B1020;              /* deep navy */
+  --surface: #111831;         /* card (C.cd) */
+  --surface-2: #141C38;       /* raised (C.s2) */
+  --surface-hover: #1A2340;   /* hover (C.cdH) */
+  --sidebar: #0A0E1C;
+  --ink: #F4EFE6;             /* bone (C.t1) */
+  --ink-2: #C8CDD9;           /* C.t2 */
+  --muted: #8B93AE;           /* C.t3 */
+  --faint: #5A6380;           /* C.t4 */
+  --line: #2A3558;            /* C.br */
+  --line-2: #1E2740;          /* fainter border */
+  --hairline: var(--line);
 
-  /* brand */
-  --accent: #4f46e5;
-  --accent-2: #4338ca;
-  --accent-weak: #eef0fe;
-  --accent-ink: #4338ca;
+  /* AEGIS orange is the brand accent */
+  --accent: #E8793B;          /* C.em / or / rs */
+  --accent-2: #FF8A4D;
+  --accent-weak: rgba(232, 121, 59, 0.14);
+  --accent-ink: #F0925A;
 
-  /* semantic */
-  --good: #067a57; --good-bg: #e6f5ef; --good-line: #b6e3d1;
-  --warn: #b25e09; --warn-bg: #fbf1e1; --warn-line: #f0d3a8;
-  --crit: #c2334a; --crit-bg: #fcedef; --crit-line: #f2c2ca;
+  /* Aurora semantic ramp */
+  --good: #7FA780; --good-bg: rgba(127, 167, 128, 0.10); --good-line: rgba(127, 167, 128, 0.35);
+  --warn: #E0B34A; --warn-bg: rgba(224, 179, 74, 0.10); --warn-line: rgba(224, 179, 74, 0.35);
+  --crit: #C8463D; --crit-bg: rgba(200, 70, 61, 0.12); --crit-line: rgba(200, 70, 61, 0.35);
+  --teal: #6BA4A4; --blue: #6B8EC4; --purple: #A06C9A; --amber: #E0B34A;
 
-  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
-  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 14px rgba(16, 24, 40, 0.06);
-  --shadow-lg: 0 12px 40px rgba(16, 24, 40, 0.14);
-  --ring: 0 0 0 3px rgba(79, 70, 229, 0.18);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.6);
+  --ring: 0 0 0 2px #22D3EE;
 
-  --radius: 12px;
-  --radius-sm: 8px;
-  --radius-lg: 16px;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 10px;
 
-  --sans: "Public Sans", "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --serif: "Fraunces Variable", "Fraunces", "Iowan Old Style", "Charter", "Georgia", ui-serif, serif;
-  --mono: "IBM Plex Mono", "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter Variable", "Inter", "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Fraunces Variable", "Fraunces", Georgia, ui-serif, serif;
+  --mono: "JetBrains Mono", "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
 
-  --sidebar-w: 250px;
+  --sidebar-w: 244px;
 
-  /* Ledgerline rung-type system (the ladder colour language) */
-  --k-d: #9e6d12; --k-d-bg: #fbf2df;   /* DETERMINISTIC — amber */
-  --k-a: #3e6fb0; --k-a-bg: #e9f0fa;   /* AI — blue */
-  --k-h: #6c4e9e; --k-h-bg: #efe8f8;   /* HUMAN — purple */
-  --k-t: #2e7d74; --k-t-bg: #e4f2f0;   /* THIRD PARTY — teal */
-  --seal: #1f6f54; --seal-bg: #e7f2ed; /* chain-sealed green */
-  --ink-panel: #121a24;                /* dark audit panel */
+  /* rung-type ladder colours (Aurora-toned) */
+  --k-d: #E0B34A; --k-d-bg: rgba(224,179,74,.12);   /* DETERMINISTIC — amber */
+  --k-a: #6B8EC4; --k-a-bg: rgba(107,142,196,.14);  /* AI — blue */
+  --k-h: #A06C9A; --k-h-bg: rgba(160,108,154,.14);  /* HUMAN — purple */
+  --k-t: #6BA4A4; --k-t-bg: rgba(107,164,164,.14);  /* THIRD PARTY — teal */
+  --seal: #7FA780; --seal-bg: rgba(127,167,128,.12);/* chain-sealed green */
+  --ink-panel: #0A0E1C;                             /* dark audit panel */
 }
-:root[data-theme="dark"] {
-  --k-d: #d0a24b; --k-d-bg: #2a2114;
-  --k-a: #6f9ede; --k-a-bg: #16202e;
-  --k-h: #a88fd6; --k-h-bg: #201a2e;
-  --k-t: #4fb0a4; --k-t-bg: #14251f;
-  --seal: #46c191; --seal-bg: #12271f;
-  --ink-panel: #0d1017;
-}
-@media (prefers-color-scheme: dark) {
-  :root {
-    --k-d: #d0a24b; --k-d-bg: #2a2114;
-    --k-a: #6f9ede; --k-a-bg: #16202e;
-    --k-h: #a88fd6; --k-h-bg: #201a2e;
-    --k-t: #4fb0a4; --k-t-bg: #14251f;
-    --seal: #46c191; --seal-bg: #12271f;
-    --ink-panel: #0d1017;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0a0d13; --surface: #12161f; --surface-2: #161b25; --surface-hover: #1a2029;
-    --sidebar: #0d1017;
-    --ink: #e7eaf0; --ink-2: #d3d8e0; --muted: #97a2b2; --faint: #6a7484;
-    --line: #222836; --line-2: #1a1f29;
-    --accent: #7c83f5; --accent-2: #9199f8; --accent-weak: #191d33; --accent-ink: #b7bcfb;
-    --good: #46c191; --good-bg: #12271f; --good-line: #1f4436;
-    --warn: #d99a3d; --warn-bg: #2a2114; --warn-line: #4a3a1d;
-    --crit: #ec6b81; --crit-bg: #2a1820; --crit-line: #4a2530;
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 16px 50px rgba(0, 0, 0, 0.5);
-    --ring: 0 0 0 3px rgba(124, 131, 245, 0.25);
-  }
-}
+/* light escape hatch — the previous refined-enterprise theme */
 :root[data-theme="light"] {
   --bg: #f6f7fb; --surface: #ffffff; --surface-2: #f9fafc; --surface-hover: #f4f6f9; --sidebar: #ffffff;
   --ink: #101828; --ink-2: #1f2a37; --muted: #667085; --faint: #98a2b3; --line: #e8ebf0; --line-2: #f0f2f5;
-  --accent: #4f46e5; --accent-2: #4338ca; --accent-weak: #eef0fe; --accent-ink: #4338ca;
+  --accent: #E8793B; --accent-2: #d9631f; --accent-weak: rgba(232,121,59,.10); --accent-ink: #b8521a;
   --good: #067a57; --good-bg: #e6f5ef; --good-line: #b6e3d1;
   --warn: #b25e09; --warn-bg: #fbf1e1; --warn-line: #f0d3a8;
   --crit: #c2334a; --crit-bg: #fcedef; --crit-line: #f2c2ca;
+  --teal: #2e7d74; --blue: #3e6fb0; --purple: #6c4e9e; --amber: #b25e09;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 14px rgba(16, 24, 40, 0.06);
   --shadow-lg: 0 12px 40px rgba(16, 24, 40, 0.14);
-}
-:root[data-theme="dark"] {
-  --bg: #0a0d13; --surface: #12161f; --surface-2: #161b25; --surface-hover: #1a2029; --sidebar: #0d1017;
-  --ink: #e7eaf0; --ink-2: #d3d8e0; --muted: #97a2b2; --faint: #6a7484; --line: #222836; --line-2: #1a1f29;
-  --accent: #7c83f5; --accent-2: #9199f8; --accent-weak: #191d33; --accent-ink: #b7bcfb;
-  --good: #46c191; --good-bg: #12271f; --good-line: #1f4436;
-  --warn: #d99a3d; --warn-bg: #2a2114; --warn-line: #4a3a1d;
-  --crit: #ec6b81; --crit-bg: #2a1820; --crit-line: #4a2530;
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
-  --shadow-lg: 0 16px 50px rgba(0, 0, 0, 0.5);
+  --ring: 0 0 0 3px rgba(232, 121, 59, 0.20);
+  --k-d: #9e6d12; --k-d-bg: #fbf2df; --k-a: #3e6fb0; --k-a-bg: #e9f0fa;
+  --k-h: #6c4e9e; --k-h-bg: #efe8f8; --k-t: #2e7d74; --k-t-bg: #e4f2f0;
+  --seal: #1f6f54; --seal-bg: #e7f2ed; --ink-panel: #121a24;
 }
 
 * { box-sizing: border-box; }
@@ -637,3 +598,97 @@ h1.h-serif, .page-head h1 { letter-spacing: .1px; }
 .rband.MEDIUM { color: var(--warn); background: var(--warn-bg); }
 .rband.HIGH { color: var(--crit); background: var(--crit-bg); }
 .rband.CRITICAL { color: #fff; background: var(--crit); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   AEGIS AURORA OVERRIDES — the legal-ops mission-control skin (copied from
+   the legal_intake app's @aegis/ui Aurora system). These win by source order.
+   ═══════════════════════════════════════════════════════════════════════════ */
+body { font-feature-settings: normal; }
+
+/* orange primary button reads on dark by default */
+.btn.primary { color: #0B1020; font-weight: 650; }
+:root[data-theme="light"] .btn.primary { color: #fff; }
+
+/* uppercase mono micro-labels everywhere — the terminal idiom */
+.kicker { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--muted); }
+
+/* serif display titles + serif numerics */
+.page-head h1, h1.h-serif { font-family: var(--serif); font-weight: 400; letter-spacing: 0; color: var(--ink); }
+.page-head h1 { font-size: 30px; line-height: 1.15; }
+.page-head .sub { color: var(--muted); }
+
+/* ── app shell ── */
+.shell-content { max-width: 1280px; padding: 26px 30px 80px; }
+.sidebar { background: var(--sidebar); border-right: 1px solid var(--line); padding: 14px 10px; }
+.sb-brand { padding: 8px 8px 18px; gap: 11px; }
+.sb-brand .mk { width: 32px; height: 32px; border-radius: 7px; background: var(--accent);
+  color: #0B1020; font-weight: 800; font-size: 16px; box-shadow: 0 0 18px rgba(232,121,59,.35); }
+.sb-brand .nm { font-family: var(--serif); font-weight: 500; font-size: 17px; letter-spacing: 0.06em; color: var(--ink); }
+.sb-brand .nm small { display: block; font-family: var(--mono); font-size: 8px; letter-spacing: 0.18em;
+  color: var(--faint); margin-top: 1px; font-weight: 500; }
+.sb-group-label { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; color: var(--faint);
+  padding: 16px 10px 6px; }
+.sb-link { font-size: 13px; font-weight: 500; color: var(--muted); border-radius: 6px;
+  border-left: 2px solid transparent; padding: 8px 10px; }
+.sb-link:hover { background: var(--surface-hover); color: var(--ink); }
+.sb-link.active { background: var(--accent-weak); color: var(--accent-ink); border-left-color: var(--accent);
+  font-weight: 600; }
+.sb-link .gl { width: 17px; display: inline-flex; justify-content: center; font-size: 13px; flex: none; }
+.sb-foot { border-top: 1px solid var(--line); }
+.sb-foot .avatar { background: var(--accent-weak); color: var(--accent-ink); font-family: var(--mono); }
+
+/* ── top bar: eyebrow + serif title, LIVE clock, ask-aurora ── */
+.topbar { background: color-mix(in srgb, var(--bg) 80%, transparent); border-bottom: 1px solid var(--line); height: 58px; }
+.topbar .tb-eyebrow { font-family: var(--mono); font-size: 9px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--faint); }
+.topbar .tb-title { font-family: var(--serif); font-weight: 500; font-size: 16px; letter-spacing: 0.01em; color: var(--ink); }
+.tb-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 10px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.tb-live .d { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: p 2s infinite; }
+.tb-clock { font-family: var(--mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+@keyframes p { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── cards ── */
+.card { background: var(--surface); border: 1px solid var(--line); box-shadow: none; }
+.card-hover:hover { border-color: var(--line); box-shadow: var(--shadow); }
+
+/* ── pills: mono, tinted, tight ── */
+.pill { font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+  padding: 2px 8px; border-radius: 4px; border: 1px solid transparent; }
+.pill.state { background: var(--surface-2); color: var(--muted); border-color: var(--line); }
+.pill.auto, .pill.good { background: var(--good-bg); color: var(--good); border-color: transparent; }
+.pill.assisted, .pill.warn { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+.pill.escalated, .pill.crit { background: var(--crit-bg); color: var(--crit); border-color: transparent; }
+.pill.accent { background: var(--accent-weak); color: var(--accent-ink); border-color: transparent; }
+.chip-verify { font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; background: var(--good-bg);
+  color: var(--good); border-color: transparent; border-radius: 5px; }
+
+/* ── stat tiles: mono label + big Fraunces number ── */
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 15px 16px; box-shadow: none; }
+.stat .lbl { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+.stat .val { font-family: var(--serif); font-size: 30px; font-weight: 400; letter-spacing: 0; margin-top: 5px; line-height: 1; }
+.stat .val.accent { color: var(--accent); }
+.stat .stat-sub, .stat .stat-cap { font-family: var(--mono); font-size: 9.5px; color: var(--faint); }
+.stat.stat-crit .val { color: var(--crit); } .stat.stat-warn .val { color: var(--warn); }
+
+/* ── tables: mono headers, faint row lines, hover ── */
+.tbl th, .inbox th { font-family: var(--mono); font-size: 9px; letter-spacing: 0.14em; color: var(--faint); padding: 10px 14px; }
+.tbl td, .inbox td { padding: 12px 14px; border-bottom: 1px solid var(--line-2); }
+.tbl tbody tr:hover, .inbox tbody tr:hover td { background: var(--surface-hover); }
+.tbl .ref, .inbox .ref { font-family: var(--mono); color: var(--accent-ink); font-weight: 600; font-size: 11px; }
+.tbl .cp, .inbox .cp { color: var(--ink); }
+
+/* ── segmented control → Aurora filter chips ── */
+.seg { display: inline-flex; gap: 6px; background: transparent; border: 0; padding: 0; flex-wrap: wrap; }
+.seg button, .seg .on { font-family: var(--mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+  padding: 5px 11px; border-radius: 5px; border: 1px solid var(--line); background: transparent; color: var(--muted); }
+.seg button:hover { color: var(--ink); border-color: var(--line); }
+.seg button.on { color: var(--accent-ink); border-color: var(--accent); background: var(--accent-weak); }
+
+/* ── inputs on dark ── */
+input, select, textarea { background-color: var(--surface-2); border-color: var(--line); color: var(--ink); }
+select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238B93AE' stroke-width='2.2' stroke-linecap='round'><path d='M6 9l6 6 6-6'/></svg>");
+  background-repeat: no-repeat; background-position: right 10px center; background-size: 16px; }
+
+/* audit panel already dark — nudge to Aurora navy */
+.chainlog { background: var(--ink-panel); border: 1px solid var(--line); }

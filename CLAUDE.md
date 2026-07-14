@@ -147,6 +147,42 @@ must keep working end-to-end at every checkpoint.
   typed books and labels them `[nda]` / `[dpa]`; requester status + contracts
   registry are type-aware.
 
+### ✅ Also done (the workflow engine — score-driven ladders + the negotiation loop)
+- **AI risk score per round** (`services/risk.py`) — deterministic factor core
+  (walk-away breaches, deviations priced by playbook rung, missing mandatory
+  clauses, off-policy facts, sanctions posture) + an AI adjustment that can
+  only RAISE severity (clamped server-side; heuristic mode abstains). A lone
+  walk-away or a flagged counterparty is CRITICAL on its own.
+- **The band picks the ladder** — per-contract-type band→rungs matrix stored
+  on the request type; governance as data, editable at `/admin/workflows`,
+  validated so non-NDA types can never be blanked into auto-send and inbound
+  paper never auto-clears. `finalize_round_governance()` is the single
+  chokepoint: assess → matrix → rebuild ladder → AUTO or IN_REVIEW.
+- **The negotiation loop** — `APPROVED → WITH_COUNTERPARTY → (their markup
+  returns) → round N+1`: new DocumentVersion, fresh redline vs the playbook,
+  changed-vs-our-last-position diff, fresh score, fresh ladder — every round
+  governed exactly like round 1, on one ticket, on one audit chain. Email
+  replies naming a ref thread-match into the loop **only when the sender
+  looks like the counterparty** (domain/name check — refs are guessable).
+  `/send` (signature) is the separate convergence path, and its packet is
+  always the decisions-applied counter-proposal when a review exists.
+- **APPROVED requires BOTH gates** (`approval_blockers()`): the risk-built
+  ladder cleared AND every redline decided — neither the ladder path nor the
+  decide-changes path can flip state alone.
+- **Workflow templates** (`services/workflows.py`) — the pipeline as
+  versioned data per contract type: pinned/always/conditional rungs over the
+  canonical spine (intake → … → seal), ordering-validated, instantiated
+  against matter attributes with fired AND dormant rules audited, snapshot
+  pinned on the request (publish never rewrites in-flight matters). H-kind
+  gate rungs (the DPA ships a DPO gate) join every round's ladder. The
+  executor advances the snapshot from the existing chokepoints and
+  accumulates time-at-stage.
+- **Surfaces** — `/admin/workflows` designer (templates + live risk matrix),
+  cockpit risk badge + factor breakdown + workflow ladder rail + negotiation
+  panel (review-vs-signature fork, paste/upload return recording), inbox
+  risk chips + round markers, `/sla` workflow insights (clock by rung kind,
+  autonomy %, override rate per template).
+
 ### ⏳ Not yet built (next slices)
 1. **Real DocuSign** — the `send → executed` step is stubbed. The seam
    (`get_esign_client()`, the HMAC webhook) is in place; wiring a real provider
@@ -205,6 +241,10 @@ d4e5f6a7b8c9  unique_renewed_from (partial unique index — one renewal per cont
 e5f6a7b8c9d0  intake_platform (request_type, routing_rule, obligation, queue-ops columns)
 f6a7b8c9d0e1  unique_obligation_per_request_kind
 a7b8c9d0e1f2  playbook_contract_type (contract_type_key + per-org type index)
+b8c9d0e1f2a3  risk_assessment (score + band + factors per request round)
+c9d0e1f2a3b4  risk_ladder_matrix (band -> rungs JSON on request_type)
+d0e1f2a3b4c5  negotiation_rounds (WITH_COUNTERPARTY/RETURNED states, round counters)
+e1f2a3b4c5d6  workflow_templates (versioned rung blueprints + pinned instance snapshot)
 ```
 New schema changes are ordinary Alembic revisions chained from the current head.
 Never re-edit a migration that has shipped to production — add a new one on top.
@@ -338,6 +378,11 @@ Each entry landed as one commit, demo green at every step.
 
 | Commit | What |
 |---|---|
+| `5b19820` | Fix 16 review findings on the workflow engine — dual-gate APPROVED (ladder AND redlines), round-2 send uses the counter-proposal not raw markup, thread-match sender validation, CRITICAL floors for walk-away/sanctions, 409s for racing returns, honest step reasons |
+| `541a70d` | **Slice 5**: workflow designer UI (`/admin/workflows`), matter ladder rail + risk badges in the cockpit, negotiation panel, live risk matrix, SLA workflow insights |
+| `c344ec3` | **Slice 4**: workflow-as-data — versioned templates, pinned/conditional rungs, instance pinning, stage executor with time-at-stage |
+| `aa1e720` | **Slice 3**: the negotiation loop — rounds, counterparty returns (paste/upload/email thread-match), per-round re-redline + re-score + rebuilt ladder |
+| `02accbf` | **Slices 1+2**: AI risk score (deterministic core + raise-only AI adjustment) + score-driven approval ladders via per-type band matrix |
 | `d2a5701` | **Phase 2 — second CONTRACT engine**: type-scoped playbooks (one default per type, schema-enforced), DPA type + seeded 9-rule playbook, type gate (non-NDA never AUTO), rule-derived clause taxonomy, typed intake surfaces; 3-pass adversarial review, all findings fixed (DPA renewal 500, NDA-policy leak into DPA checks, advice/contract boundary, mailbox playbook guard, email/chat DPA detection) |
 | `2fa3ee6` | Fix 24 review findings — draft-leak gate, semantic-aware ladder, org scoping, routing hardening, queue-ops permissions |
 | `843d88a` | **Intake platform**: request-type catalog + ADVICE resolution engine, routing rules + dry-run, playbook fallback/walk-away ladders, obligations, ⌘K + single-key triage + snooze + saved views + bulk, type-to-confirm |

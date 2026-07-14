@@ -710,3 +710,13 @@ select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w
 .modal-scrim { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 32%, transparent);
   backdrop-filter: blur(2px); z-index: 100; display: flex; align-items: flex-start;
   justify-content: center; padding: 14vh 16px 16px; }
+
+/* ————— Intake workspace tab bar ————— */
+.ws-tabs { display: flex; gap: 2px; margin-bottom: 16px; border-bottom: 1px solid var(--line);
+  overflow-x: auto; flex-wrap: wrap; }
+.ws-tab { background: none; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px;
+  padding: 9px 15px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--faint); cursor: pointer; display: flex; align-items: center;
+  gap: 6px; white-space: nowrap; transition: color .15s, border-color .15s; }
+.ws-tab:hover { color: var(--ink); }
+.ws-tab.on { color: var(--teal); border-bottom-color: var(--teal); font-weight: 600; }

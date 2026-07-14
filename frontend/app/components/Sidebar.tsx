@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
       { href: "/", label: "Mission Control", perm: null, gl: "◎", c: C.em },
       { href: "/inbox", label: "Legal Intake", perm: "request:read_all", gl: "◆", c: C.cy },
       { href: "/cockpit", label: "Triage Cockpit", perm: "request:read_all", gl: "◈", c: C.em },
+      { href: "/workspace", label: "Ops Workspace", perm: "request:read_all", gl: "▦", c: C.pp },
       { href: "/contracts", label: "Contracts", perm: "request:read_all", gl: "▤", c: C.bl },
       { href: "/sla", label: "SLA & Operations", perm: "request:read_all", gl: "◉", c: C.am },
     ],

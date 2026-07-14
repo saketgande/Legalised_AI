@@ -18,6 +18,7 @@ from ..models import ActorType
 from . import intake
 from .ai import get_ai_client
 from .extract import extract_text
+from .playbooks import PlaybookResolutionError
 
 # attachment types we can pull clause text out of
 _SUPPORTED_EXT = (".docx", ".pdf", ".txt", ".md")
@@ -69,16 +70,37 @@ def ingest_email(
         or intake.looks_like_contract(body)
     )
 
+    # explicit DPA asks route to the DPA engine; anything ambiguous stays NDA.
+    # Misdetection errs safe — non-NDA contract types always get attorney review.
+    tkey = intake.detect_contract_type(f"{subject}\n{body}")
+
     if is_inbound:
         body_text = attachment_text or body
         counterparty = parsed.counterparty or (from_name or from_email.split("@")[0].title())
-        r = intake.create_inbound(
-            db, org=org, requester=requester, actor=actor,
-            counterparty_name=counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
-            body_text=body_text, channel="EMAIL",
-            source=source + ("-attachment" if attachment_text else ""),
-            playbook_id=playbook_id,
-        )
+        try:
+            r = intake.create_inbound(
+                db, org=org, requester=requester, actor=actor,
+                counterparty_name=counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+                body_text=body_text, channel="EMAIL",
+                source=source + ("-attachment" if attachment_text else ""),
+                # the mailbox's pinned playbook is NDA-only; a detected DPA
+                # resolves against the org's DPA default instead
+                playbook_id=playbook_id if tkey == "nda" else None,
+                type_key=tkey,
+            )
+        except (ValueError, PlaybookResolutionError):
+            if tkey == "nda":
+                raise
+            # no DPA catalog entry / no DPA playbook in this org — never wedge
+            # the mailbox on it; fall back to the NDA pipeline
+            db.rollback()
+            r = intake.create_inbound(
+                db, org=org, requester=requester, actor=actor,
+                counterparty_name=counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+                body_text=body_text, channel="EMAIL",
+                source=source + ("-attachment" if attachment_text else ""),
+                playbook_id=playbook_id,
+            )
         return IngestResult(created=True, classified="inbound", request_id=r.id, ref=r.ref,
                             direction="INBOUND", counterparty=counterparty)
 
@@ -97,11 +119,22 @@ def ingest_email(
             reply="Couldn't identify the counterparty from the email — a human should triage this.",
         )
 
-    r = intake.create_outbound(
-        db, org=org, requester=requester, actor=actor,
-        counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
-        jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="EMAIL",
-        playbook_id=playbook_id,
-    )
+    try:
+        r = intake.create_outbound(
+            db, org=org, requester=requester, actor=actor,
+            counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+            jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="EMAIL",
+            playbook_id=playbook_id if tkey == "nda" else None, type_key=tkey,
+        )
+    except (ValueError, PlaybookResolutionError):
+        if tkey == "nda":
+            raise
+        db.rollback()
+        r = intake.create_outbound(
+            db, org=org, requester=requester, actor=actor,
+            counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+            jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="EMAIL",
+            playbook_id=playbook_id,
+        )
     return IngestResult(created=True, classified="outbound", request_id=r.id, ref=r.ref,
                         direction="OUTBOUND", counterparty=parsed.counterparty)

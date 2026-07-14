@@ -124,11 +124,29 @@ def segment(text: str) -> list[tuple[str, str, str]]:
     return clauses
 
 
-def classify(heading: str, body: str) -> str | None:
+def keyword_map_for(rules, include_base: bool) -> dict[str, list[str]]:
+    """Derive the clause-classification keywords from a playbook's OWN rules —
+    each rule contributes its heading and the meaningful words of its
+    clause_type. This is what frees the redline engine from the NDA-hardcoded
+    map: a DPA playbook classifies DPA paper. The NDA base map folds in only
+    when asked (include_base), since NDAs predate rule-derived keywords."""
+    m: dict[str, list[str]] = {k: list(v) for k, v in CLAUSE_KEYWORDS.items()} if include_base else {}
+    for r in rules:
+        kws = m.setdefault(r.clause_type, [])
+        h = (r.heading or "").lower().strip()
+        if h and h not in kws:
+            kws.append(h)
+        for w in (r.clause_type or "").split("_"):
+            if len(w) > 4 and w not in kws:
+                kws.append(w)
+    return m
+
+
+def classify(heading: str, body: str, kmap: dict[str, list[str]] | None = None) -> str | None:
     """Best-match clause_type by keyword hits (heading weighted higher)."""
     h, b = heading.lower(), body.lower()
     best, best_score = None, 0
-    for ctype, kws in CLAUSE_KEYWORDS.items():
+    for ctype, kws in (kmap or CLAUSE_KEYWORDS).items():
         score = 0
         for kw in kws:
             if kw in h:
@@ -218,7 +236,8 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
     # and collided them by clause_type. Stamp the resolved playbook onto the request.
     from .playbooks import load_rules, resolve_playbook, rule_applies
 
-    playbook = resolve_playbook(db, request.org_id, request.playbook_id)
+    tkey = (request.type or "nda").lower()
+    playbook = resolve_playbook(db, request.org_id, request.playbook_id, contract_type=tkey)
     request.playbook_id = playbook.id
     rules = [r for r in load_rules(db, playbook.id) if rule_applies(r, request)]
     rule_by_type = {r.clause_type: r for r in rules}
@@ -265,8 +284,12 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
         after = _fill(rule.preferred_body, ctx)
         conf: float | None = None
 
-        # DETERMINISTIC layer — numbers/dates the LLM shouldn't be trusted with
-        checker = _CHECKERS.get(ctype)
+        # DETERMINISTIC layer — numbers/dates the LLM shouldn't be trusted with.
+        # The liability-floor and term-ceiling constants are NDA policy; running
+        # them against e.g. a DPA (whose preferred liability position is UNCAPPED)
+        # would flag our own preferred language as a deviation. The governing-law
+        # set is org-wide and applies to every contract type.
+        checker = _CHECKERS.get(ctype) if (tkey == "nda" or ctype == "governing_law") else None
         if checker:
             det_dev, det_checks = checker(clause.body_text)
             checks += det_checks
@@ -275,7 +298,7 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
                 conf = _CONFIDENCE.get(ctype, conf)
 
         # SEMANTIC layer — Claude (or heuristic fallback); may abstain (None)
-        verdict = ai.compare_clause(clause.body_text, rule, ctx)
+        verdict = ai.compare_clause(clause.body_text, rule, ctx, contract_type=tkey)
         if verdict is not None:
             checks.append({
                 "kind": "SEMANTIC", "name": "position_match", "passed": verdict.matches,

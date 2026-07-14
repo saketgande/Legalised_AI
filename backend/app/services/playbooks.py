@@ -23,20 +23,35 @@ class PlaybookResolutionError(ValueError):
     the org has no default. Routers translate this to a 400/404."""
 
 
-def resolve_playbook(db: Session, org_id: str, playbook_id: str | None = None) -> Playbook:
-    """A specific playbook when named (org-checked), else the org's default."""
+def resolve_playbook(
+    db: Session, org_id: str, playbook_id: str | None = None,
+    contract_type: str | None = None,
+) -> Playbook:
+    """A specific playbook when named (org-checked; type-checked when the caller
+    states a contract type — a DPA request must never be silently judged against
+    the NDA book), else the org's default FOR THAT CONTRACT TYPE (nda when
+    unstated). Admin tooling passes no type so it can manage any book by id."""
     if playbook_id:
         pb = db.get(Playbook, playbook_id)
         if pb is None or pb.org_id != org_id:
             raise PlaybookResolutionError("playbook not found for organisation")
+        if contract_type and (pb.contract_type_key or "nda").lower() != contract_type.lower():
+            raise PlaybookResolutionError(
+                f"playbook '{pb.name}' governs {pb.contract_type_key} contracts, not {contract_type.lower()}"
+            )
         return pb
+    ctype = (contract_type or "nda").lower()
     pb = db.execute(
         select(Playbook)
-        .where(Playbook.org_id == org_id, Playbook.active == True)  # noqa: E712
+        .where(
+            Playbook.org_id == org_id,
+            Playbook.contract_type_key == ctype,
+            Playbook.active == True,  # noqa: E712
+        )
         .order_by(Playbook.created_at.asc())
     ).scalars().first()
     if pb is None:
-        raise PlaybookResolutionError("no active playbook for organisation")
+        raise PlaybookResolutionError(f"no active {ctype} playbook for organisation")
     return pb
 
 

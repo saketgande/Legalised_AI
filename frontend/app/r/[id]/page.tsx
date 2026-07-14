@@ -31,7 +31,7 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
     <div style={{ maxWidth: 720, margin: "0 auto" }}>
       <div className="page-head" style={{ marginBottom: 16 }}>
         <p className="kicker">Your request · <span className="mono">{s.ref}</span></p>
-        <h1>{advice ? s.counterparty_name : `Your NDA with ${s.counterparty_name}`}</h1>
+        <h1>{advice ? s.counterparty_name : `Your ${(s.type_label || "NDA").split(" / ")[0]} with ${s.counterparty_name}`}</h1>
         {advice && <p className="sub" style={{ marginTop: 4 }}>{s.purpose}</p>}
       </div>
 
@@ -84,9 +84,11 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
         <div className="notice good" style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 18 }}>
           <span style={{ fontSize: 16 }}>✓</span>
           <div>
-            <div style={{ fontWeight: 620 }}>Your executed NDA is on file.</div>
+            <div style={{ fontWeight: 620 }}>Your executed {(s.type_label || "NDA").split(" / ")[0]} is on file.</div>
             <div style={{ fontSize: 12.5, opacity: 0.9 }}>
-              The {s.nda_type === "MUTUAL" ? "mutual" : "one-way"} NDA with {s.counterparty_name} is signed
+              The {(s.type_label || "NDA").split(" / ")[0] === "NDA"
+                ? `${s.nda_type === "MUTUAL" ? "mutual" : "one-way"} NDA`
+                : (s.type_label || "NDA").split(" / ")[0]} with {s.counterparty_name} is signed
               {s.expires_at
                 ? <> — renewal tracked, expires <b>{new Date(s.expires_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</b>.</>
                 : <> and its renewal is tracked.</>}

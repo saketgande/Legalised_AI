@@ -115,12 +115,12 @@ export default function ContractRegistryPage() {
         <div className="page-head-row">
           <div>
             <p className="kicker">Operations · Contract registry</p>
-            <h1>Executed NDAs on file</h1>
+            <h1>Executed contracts on file</h1>
           </div>
           <span className="muted tnum" style={{ fontSize: 13 }}>{d.totals.total} contracts</span>
         </div>
         <p className="sub">
-          Every signed NDA, its renewal clock running. {attention > 0
+          Every signed contract, its renewal clock running. {attention > 0
             ? <><b>{attention}</b> need attention — {d.totals.expired > 0 && <span className="crit-txt">{d.totals.expired} expired</span>}
                 {d.totals.expired > 0 && d.totals.expiring > 0 && ", "}
                 {d.totals.expiring > 0 && <>{d.totals.expiring} expiring within {d.expiring_soon_days} days</>}.</>
@@ -200,7 +200,7 @@ export default function ContractRegistryPage() {
                       onClick={() => toggleRow(r.id)}>
                       <td className="ref">{open ? "▾ " : "▸ "}{r.ref}</td>
                       <td className="cp">{r.counterparty}</td>
-                      <td className="muted">{r.nda_type === "MUTUAL" ? "Mutual" : "One-way"}</td>
+                      <td className="muted">{r.type && r.type !== "nda" ? r.type.toUpperCase() : (r.nda_type === "MUTUAL" ? "NDA · mutual" : "NDA · one-way")}</td>
                       <td className="muted tnum">{fmtDate(r.executed_at)}</td>
                       <td><LifeBar row={r} /></td>
                       <td><span className={`pill ${STATUS_PILL[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>

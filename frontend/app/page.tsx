@@ -7,8 +7,8 @@ import { IconChat, IconInbox, IconMail, IconPlus, IconReview } from "./component
 
 type Action = { href: string; label: string; desc: string; perm: string | null; Icon: (p: any) => JSX.Element };
 const ACTIONS: Action[] = [
-  { href: "/new", label: "Request an NDA", desc: "Fill a short form; track it like a package.", perm: "request:create", Icon: IconPlus },
-  { href: "/inbound", label: "Review their paper", desc: "Paste a counterparty NDA — the engine redlines it against your playbook.", perm: "request:read_all", Icon: IconReview },
+  { href: "/new", label: "New request", desc: "NDA, DPA, or a legal question — pick and track it like a package.", perm: "request:create", Icon: IconPlus },
+  { href: "/inbound", label: "Review their paper", desc: "Paste a counterparty contract — the engine redlines it against your playbook.", perm: "request:read_all", Icon: IconReview },
   { href: "/inbox", label: "Legal inbox", desc: "Triage the queue, approve deviations, send.", perm: "request:read_all", Icon: IconInbox },
   { href: "/chat", label: "Ask legal", desc: "Describe what you need in plain language.", perm: "request:create", Icon: IconChat },
   { href: "/email-sim", label: "Email intake", desc: "See how an inbound email becomes a triaged ticket.", perm: "request:read_all", Icon: IconMail },
@@ -154,7 +154,7 @@ function RequesterHome({ rows, name, has }: { rows: RequestSummary[]; name: stri
       <div className="page-head">
         <p className="kicker">Legal front door + CLM</p>
         <h1>Welcome back, {name}.</h1>
-        <p className="sub">Request an NDA in a minute, then track it like a package — we draft it, route only the risky terms to a lawyer, and file the signed copy.</p>
+        <p className="sub">Ask legal for anything — an NDA, a DPA, a question — then track it like a package. We draft it, route only the risky parts to a lawyer, and file the signed copy.</p>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14, marginBottom: 30 }}>
         {actions.map((a) => (

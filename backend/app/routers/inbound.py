@@ -43,7 +43,7 @@ _MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
 
 def _ingest_inbound(
     db: Session, user: User, *, counterparty_name: str, nda_type: str, purpose: str,
-    body_text: str, source: str, playbook_id: str | None = None,
+    body_text: str, source: str, playbook_id: str | None = None, type_key: str = "nda",
 ) -> Request:
     """Attribute an inbound review to the authenticated staff user, then run it
     through the shared intake pipeline."""
@@ -57,8 +57,9 @@ def _ingest_inbound(
             actor=intake.Actor(user.id, ActorType.USER, user.name),
             counterparty_name=counterparty_name, nda_type=nda_type, purpose=purpose,
             body_text=body_text, channel="EMAIL", source=source, playbook_id=playbook_id,
+            type_key=type_key,
         )
-    except PlaybookResolutionError as e:
+    except (PlaybookResolutionError, ValueError) as e:
         raise HTTPException(400, str(e))
 
 
@@ -71,7 +72,7 @@ def create_inbound(
     r = _ingest_inbound(
         db, user, counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
         purpose=payload.purpose, body_text=payload.body_text, source="paste",
-        playbook_id=payload.playbook_id,
+        playbook_id=payload.playbook_id, type_key=payload.type_key,
     )
     return R._detail(db, r)
 
@@ -82,6 +83,7 @@ def create_inbound_upload(
     nda_type: str = Form("MUTUAL"),
     purpose: str = Form("vendor_evaluation"),
     playbook_id: str | None = Form(None),
+    type_key: str = Form("nda"),
     file: UploadFile = File(...),
     user: User = Depends(require(Permission.REQUEST_READ_ALL)),
     db: Session = Depends(get_db),
@@ -94,7 +96,7 @@ def create_inbound_upload(
     r = _ingest_inbound(
         db, user, counterparty_name=counterparty_name, nda_type=nda_type,
         purpose=purpose, body_text=body_text, source=ext or "file",
-        playbook_id=playbook_id or None,
+        playbook_id=playbook_id or None, type_key=type_key,
     )
     return R._detail(db, r)
 

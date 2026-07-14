@@ -23,7 +23,7 @@ const GROUPS: Group[] = [
   {
     label: "Intake",
     items: [
-      { href: "/new", label: "Request an NDA", perm: "request:create", Icon: IconPlus },
+      { href: "/new", label: "New request", perm: "request:create", Icon: IconPlus },
       { href: "/chat", label: "Ask legal", perm: "request:create", Icon: IconChat },
       { href: "/inbound", label: "Review their paper", perm: "request:read_all", Icon: IconReview },
       { href: "/email-sim", label: "Email intake", perm: "request:read_all", Icon: IconMail },

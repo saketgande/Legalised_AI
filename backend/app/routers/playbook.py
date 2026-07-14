@@ -29,13 +29,15 @@ _VALID_RUNGS = set(RUNG_RANK.keys())
 
 class NewPlaybookIn(BaseModel):
     name: str
+    contract_type_key: str = "nda"    # which CONTRACT engine this book governs
 
 
 def _playbook_summary(db: Session, pb: Playbook) -> dict:
     count = db.execute(
         select(func.count(PlaybookRule.id)).where(PlaybookRule.playbook_id == pb.id)
     ).scalar_one()
-    return {"id": pb.id, "name": pb.name, "version": pb.version, "active": pb.active, "rule_count": count}
+    return {"id": pb.id, "name": pb.name, "version": pb.version, "active": pb.active,
+            "rule_count": count, "contract_type_key": pb.contract_type_key or "nda"}
 
 
 def _list_playbooks(db: Session, org_id: str) -> list[dict]:
@@ -129,14 +131,22 @@ def create_playbook(payload: NewPlaybookIn, user: User = Depends(require(Permiss
     name = payload.name.strip()
     if not name:
         raise HTTPException(400, "name is required")
+    from ..services.request_types import get_type
+
+    from ..models import RequestCategory
+
+    ctype = (payload.contract_type_key or "nda").lower()
+    rtype = get_type(db, user.org_id, ctype)
+    if rtype is None or rtype.category != RequestCategory.CONTRACT:
+        raise HTTPException(400, f"'{ctype}' is not a CONTRACT request type")
     # new playbooks start inactive so they don't disturb the current default
-    pb = Playbook(org_id=user.org_id, name=name, version=1, active=False)
+    pb = Playbook(org_id=user.org_id, name=name, contract_type_key=ctype, version=1, active=False)
     db.add(pb)
     db.flush()
     record_audit(
         db, org_id=user.org_id, action="playbook.created", resource_type="Playbook", resource_id=pb.id,
         actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
-        metadata={"name": pb.name},
+        metadata={"name": pb.name, "contract_type": ctype},
     )
     db.commit()
     return _playbook_summary(db, pb)
@@ -144,12 +154,17 @@ def create_playbook(payload: NewPlaybookIn, user: User = Depends(require(Permiss
 
 @router.post("/catalog/{playbook_id}/activate")
 def activate_playbook(playbook_id: str, user: User = Depends(require(Permission.PLAYBOOK_MANAGE)), db: Session = Depends(get_db)):
-    """Make this the org's default playbook (exactly one default at a time)."""
+    """Make this the org's default playbook FOR ITS CONTRACT TYPE (one default
+    per type — activating the DPA book never deactivates the NDA book)."""
     pb = db.get(Playbook, playbook_id)
     if pb is None or pb.org_id != user.org_id:
         raise HTTPException(404, "playbook not found")
     others = db.execute(
-        select(Playbook).where(Playbook.org_id == user.org_id, Playbook.active == True)  # noqa: E712
+        select(Playbook).where(
+            Playbook.org_id == user.org_id,
+            Playbook.contract_type_key == (pb.contract_type_key or "nda"),
+            Playbook.active == True,  # noqa: E712
+        )
     ).scalars().all()
     for o in others:
         o.active = False

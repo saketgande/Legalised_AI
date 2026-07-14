@@ -18,6 +18,7 @@ from ..security import require
 from ..services import intake
 from ..services.ai import get_ai_client
 from ..services.extract import extract_text
+from ..services.playbooks import PlaybookResolutionError
 from . import requests as R
 
 router = APIRouter(prefix="/api/intake", tags=["intake"])
@@ -118,12 +119,27 @@ def chat(
         return {"reply": parsed.reply, "created": None, "extracted": _extracted(parsed)}
 
     requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
-    r = intake.create_outbound(
-        db, org=user.org_id, requester=requester,
-        actor=intake.Actor(user.id, ActorType.USER, user.name),
-        counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
-        jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="CHAT",
-    )
+    # explicit DPA asks run the DPA engine (never AUTO — the type gate applies);
+    # if the org has no DPA catalog/playbook, fall back to the NDA pipeline
+    tkey = intake.detect_contract_type(payload.message)
+    try:
+        r = intake.create_outbound(
+            db, org=user.org_id, requester=requester,
+            actor=intake.Actor(user.id, ActorType.USER, user.name),
+            counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+            jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="CHAT",
+            type_key=tkey,
+        )
+    except (ValueError, PlaybookResolutionError):
+        if tkey == "nda":
+            raise
+        db.rollback()
+        r = intake.create_outbound(
+            db, org=user.org_id, requester=requester,
+            actor=intake.Actor(user.id, ActorType.USER, user.name),
+            counterparty_name=parsed.counterparty, nda_type=parsed.nda_type, purpose=parsed.purpose,
+            jurisdiction=parsed.jurisdiction, term_months=parsed.term_months, channel="CHAT",
+        )
     return {
         "reply": parsed.reply,
         "created": {"id": r.id, "ref": r.ref, "lane": r.lane.value if r.lane else None,

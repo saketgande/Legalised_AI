@@ -278,9 +278,119 @@ def _ensure_request_types_and_ladders() -> None:
                     if ladder and not (rule.fallbacks or []) and not (rule.walk_away_text or "").strip():
                         rule.fallbacks = ladder["fallbacks"]
                         rule.walk_away_text = ladder["walk_away"]
+            _ensure_dpa_playbook(db, org.id)
         db.commit()
     finally:
         db.close()
+
+
+def _ensure_dpa_playbook(db, org_id: str) -> None:
+    """Phase 2's proof of generalization: a second CONTRACT engine. Seeds the
+    standard DPA playbook (contract_type_key='dpa', active = the DPA default)
+    with position ladders on the negotiation-heavy rules. Idempotent by name."""
+    from sqlalchemy import select
+
+    from .models import Playbook, PlaybookRule
+
+    NAME = "Standard DPA (controller → processor)"
+    if db.execute(
+        select(Playbook).where(Playbook.org_id == org_id, Playbook.name == NAME)
+    ).scalars().first():
+        return
+
+    # become the DPA default only if the org doesn't already have one — an org
+    # that built its own active DPA book must not gain a competing default
+    has_active_dpa = db.execute(
+        select(Playbook).where(
+            Playbook.org_id == org_id,
+            Playbook.contract_type_key == "dpa",
+            Playbook.active == True,  # noqa: E712
+        )
+    ).scalars().first() is not None
+    pb = Playbook(org_id=org_id, name=NAME, contract_type_key="dpa", version=1,
+                  active=not has_active_dpa)
+    db.add(pb)
+    db.flush()
+
+    def rule(key, ordinal, ctype, heading, body, rung="none", mandatory=True,
+             fallbacks=None, walk_away=""):
+        return PlaybookRule(
+            playbook_id=pb.id, rule_key=key, clause_type=ctype, heading=heading,
+            ordinal=ordinal, applies_when={}, preferred_position="", preferred_body=body,
+            structured_params={}, mandatory=mandatory, deviation_rung=rung, rationale="",
+            fallbacks=fallbacks or [], walk_away_text=walk_away,
+        )
+
+    db.add_all([
+        rule("ROLE-01", 1, "roles_of_parties", "Roles of the Parties",
+             "For the purposes of this Agreement, {{org.name}} acts as the Controller and "
+             "{{counterparty.name}} acts as the Processor of the Personal Data described in "
+             "Annex 1, in connection with {{matter.purpose}}."),
+        rule("SCOPE-01", 2, "processing_scope", "Scope and Documented Instructions",
+             "The Processor shall process Personal Data only on documented instructions from "
+             "the Controller, including with regard to international transfers, and shall "
+             "immediately inform the Controller if an instruction infringes applicable data "
+             "protection law."),
+        rule("SUB-01", 3, "subprocessors", "Sub-processors",
+             "The Processor shall not engage a sub-processor without the Controller's prior "
+             "written authorisation, and shall impose the obligations of this Agreement on any "
+             "authorised sub-processor by written contract.", rung="vp_legal",
+             fallbacks=[{"label": "General authorisation with 30-day objection window",
+                         "rung": "vp_legal",
+                         "body": "The Processor may engage sub-processors under a general written "
+                                 "authorisation, provided it gives the Controller thirty (30) days' "
+                                 "prior notice of any addition or replacement and the Controller may "
+                                 "object on reasonable data-protection grounds."}],
+             walk_away="Unrestricted sub-processing with no notice or objection right."),
+        rule("SEC-01", 4, "security_measures", "Security Measures",
+             "The Processor shall implement and maintain appropriate technical and "
+             "organisational measures, including encryption of Personal Data in transit and at "
+             "rest, access controls on a need-to-know basis, and regular testing of those "
+             "measures.", rung="vp_legal"),
+        rule("BRN-01", 5, "breach_notification", "Personal Data Breach Notification",
+             "The Processor shall notify the Controller without undue delay and in any event "
+             "within twenty-four (24) hours of becoming aware of a Personal Data Breach, "
+             "providing sufficient information for the Controller to meet its own notification "
+             "obligations.", rung="vp_legal",
+             fallbacks=[{"label": "48-hour notification", "rung": "vp_legal",
+                         "body": "The Processor shall notify the Controller without undue delay and in "
+                                 "any event within forty-eight (48) hours of becoming aware of a "
+                                 "Personal Data Breach."},
+                        {"label": "72-hour notification (regulatory minimum)", "rung": "gc",
+                         "body": "The Processor shall notify the Controller without undue delay and in "
+                                 "any event within seventy-two (72) hours of becoming aware of a "
+                                 "Personal Data Breach."}],
+             walk_away="No breach-notification duty, or notification only 'where feasible'."),
+        rule("AUD-01", 6, "audit_rights", "Audit Rights",
+             "The Processor shall make available all information necessary to demonstrate "
+             "compliance and shall allow for and contribute to audits, including inspections, "
+             "conducted by the Controller or its mandated auditor on reasonable notice.",
+             rung="vp_legal",
+             fallbacks=[{"label": "Third-party reports in lieu (SOC 2 / ISO 27001)",
+                         "rung": "vp_legal",
+                         "body": "The Processor may satisfy audit requests by providing current SOC 2 "
+                                 "Type II or ISO 27001 reports, provided the Controller retains the "
+                                 "right to an on-site audit following a Personal Data Breach."}]),
+        rule("DSR-01", 7, "data_subject_requests", "Data Subject Requests",
+             "Taking into account the nature of the processing, the Processor shall assist the "
+             "Controller in responding to data subject requests, forwarding any request it "
+             "receives directly within five (5) business days."),
+        rule("RET-02", 8, "return_destruction", "Return or Deletion of Personal Data",
+             "Upon termination of the services, the Processor shall, at the Controller's "
+             "choice, delete or return all Personal Data within thirty (30) days and delete "
+             "existing copies unless storage is required by law, certifying deletion in "
+             "writing."),
+        rule("LOL-03", 9, "limitation_of_liability", "Liability",
+             "The Processor's liability for breaches of this Agreement or of applicable data "
+             "protection law is not subject to any limitation or exclusion of liability in the "
+             "principal agreement.", rung="gc",
+             fallbacks=[{"label": "Enhanced cap at 24 months' fees", "rung": "gc",
+                         "body": "The Processor's aggregate liability for breaches of this Agreement "
+                                 "shall not exceed the fees paid or payable in the twenty-four (24) "
+                                 "months preceding the claim."}],
+             walk_away="Data-protection liability capped below twelve (12) months' fees, or "
+                       "excluded entirely."),
+    ])
 
 
 def _poll_all_sync() -> None:

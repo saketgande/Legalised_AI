@@ -20,11 +20,13 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     JSON,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -208,9 +210,23 @@ class RoutingRule(Base):
 # ————————————————————————————— playbook —————————————————————————————
 class Playbook(Base):
     __tablename__ = "playbook"
+    __table_args__ = (
+        # schema-level backstop for "one active default per (org, contract type)" —
+        # the activate endpoint's read-then-write can race; the loser must error,
+        # not leave two defaults with the resolver silently preferring the older
+        Index(
+            "uq_playbook_active_default", "org_id", "contract_type_key",
+            unique=True,
+            postgresql_where=text("active"),
+            sqlite_where=text("active"),
+        ),
+    )
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # which CONTRACT-category request type this playbook governs ("nda", "dpa", …).
+    # active=True means "the org default FOR THIS TYPE" — one default per type.
+    contract_type_key: Mapped[str] = mapped_column(String, nullable=False, default="nda")
     version: Mapped[int] = mapped_column(Integer, default=1)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

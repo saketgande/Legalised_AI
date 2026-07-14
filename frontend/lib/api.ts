@@ -126,6 +126,7 @@ export type PlaybookSummary = {
   version: number;
   active: boolean;
   rule_count: number;
+  contract_type_key: string;   // which CONTRACT engine this book governs
 };
 
 export type MailboxConfig = {
@@ -219,6 +220,7 @@ export type RequesterStatus = {
   stage: string;
   stage_index: number;
   needs_you: boolean;
+  type_label: string | null;
   headline: string;
   detail: string;
   document_ready: boolean;
@@ -272,6 +274,7 @@ export type ContractRow = {
   ref: string;
   counterparty: string;
   nda_type: string;
+  type: string;                // contract type key ("nda", "dpa", …)
   direction: string;
   term_months: number;
   executed_at: string | null;
@@ -346,11 +349,12 @@ export const api = {
   createInbound: (body: Record<string, unknown>) =>
     fetch(`${BASE}/api/requests/inbound`, JSON_POST(body)).then(j<RequestDetail>),
 
-  createInboundUpload: (fields: { counterparty_name: string; nda_type: string; purpose: string; playbook_id?: string }, file: File) => {
+  createInboundUpload: (fields: { counterparty_name: string; nda_type: string; purpose: string; playbook_id?: string; type_key?: string }, file: File) => {
     const fd = new FormData();
     fd.append("counterparty_name", fields.counterparty_name);
     fd.append("nda_type", fields.nda_type);
     fd.append("purpose", fields.purpose);
+    if (fields.type_key) fd.append("type_key", fields.type_key);
     if (fields.playbook_id) fd.append("playbook_id", fields.playbook_id);
     fd.append("file", file);
     return fetch(`${BASE}/api/requests/inbound/upload`, { method: "POST", headers: H(), body: fd }).then(j<RequestDetail>);
@@ -407,7 +411,7 @@ export const api = {
   },
   listPlaybooksAdmin: () => fetch(`${BASE}/api/admin/playbook/catalog`, { cache: "no-store", headers: H() })
     .then(j<{ playbooks: PlaybookSummary[] }>).then((r) => r.playbooks),
-  createPlaybook: (name: string) => fetch(`${BASE}/api/admin/playbook/catalog`, JSON_POST({ name })).then(j<PlaybookSummary>),
+  createPlaybook: (name: string, contract_type_key = "nda") => fetch(`${BASE}/api/admin/playbook/catalog`, JSON_POST({ name, contract_type_key })).then(j<PlaybookSummary>),
   activatePlaybook: (id: string) => fetch(`${BASE}/api/admin/playbook/catalog/${id}/activate`, { method: "POST", headers: H() }).then(j<PlaybookSummary>),
   createRule: (body: Record<string, unknown>, playbookId?: string) => {
     const q = playbookId ? `?playbook_id=${encodeURIComponent(playbookId)}` : "";

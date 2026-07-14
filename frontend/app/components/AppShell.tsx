@@ -12,7 +12,7 @@ const TITLES: [RegExp, string][] = [
   [/^\/inbox/, "Legal inbox"],
   [/^\/contracts/, "Contract registry"],
   [/^\/sla/, "SLA & operations"],
-  [/^\/new/, "Request an NDA"],
+  [/^\/new/, "New request"],
   [/^\/chat/, "Ask legal"],
   [/^\/inbound/, "Review their paper"],
   [/^\/email-sim/, "Email intake"],

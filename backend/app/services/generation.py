@@ -39,10 +39,11 @@ def generate_outbound_nda(db: Session, request: Request) -> Document:
     counterparty = db.get(Counterparty, request.counterparty_id)
     requester = db.get(Person, request.requester_id)
 
-    # resolve the request's playbook (specific one if named, else org default),
-    # then stamp it onto the request so the audit trail records which standard
-    # produced this draft
-    playbook = resolve_playbook(db, org_id, request.playbook_id)
+    # resolve the request's playbook (specific one if named, else the org default
+    # FOR THIS CONTRACT TYPE), then stamp it onto the request so the audit trail
+    # records which standard produced this draft
+    tkey = (request.type or "nda").lower()
+    playbook = resolve_playbook(db, org_id, request.playbook_id, contract_type=tkey)
     request.playbook_id = playbook.id
     rules = load_rules(db, playbook.id)
 
@@ -55,7 +56,24 @@ def generate_outbound_nda(db: Session, request: Request) -> Document:
         "jurisdiction": request.jurisdiction,
     }
 
-    title = f"{ctx['nda.type']} Non-Disclosure Agreement — {counterparty.name}"
+    if tkey == "nda":
+        title = f"{ctx['nda.type']} Non-Disclosure Agreement — {counterparty.name}"
+        intro = (
+            f"This {ctx['nda.type']} Non-Disclosure Agreement (the “Agreement”) is entered into "
+            f"by and between **{ctx['org.name']}** and **{counterparty.name}** for the purpose of "
+            f"{ctx['matter.purpose']}."
+        )
+    else:
+        from .request_types import get_type
+
+        rtype = get_type(db, org_id, tkey)
+        label = rtype.label if rtype else tkey.upper()
+        title = f"{label} — {counterparty.name}"
+        intro = (
+            f"This agreement (the “Agreement”) is entered into by and between "
+            f"**{ctx['org.name']}** and **{counterparty.name}** in connection with "
+            f"{ctx['matter.purpose']}."
+        )
 
     document = Document(org_id=org_id, request_id=request.id, origin="GENERATED", title=title)
     db.add(document)
@@ -74,9 +92,7 @@ def generate_outbound_nda(db: Session, request: Request) -> Document:
     lines: list[str] = [
         f"# {title}",
         "",
-        f"This {ctx['nda.type']} Non-Disclosure Agreement (the “Agreement”) is entered into "
-        f"by and between **{ctx['org.name']}** and **{counterparty.name}** for the purpose of "
-        f"{ctx['matter.purpose']}.",
+        intro,
         "",
     ]
 

@@ -165,7 +165,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         <h1 className="h-serif" style={{ fontSize: 22, margin: 0 }}>{advice ? (r.type_label || "Legal request") : r.counterparty_name}</h1>
         {!advice && (
           <span className="muted" style={{ fontSize: 12 }}>
-            {r.nda_type === "MUTUAL" ? "Mutual NDA" : "One-way NDA"} · {r.direction === "INBOUND" ? "their paper — we review" : "our paper — we send"}
+            {(r.type_label || "NDA").split(" / ")[0] === "NDA"
+              ? (r.nda_type === "MUTUAL" ? "Mutual NDA" : "One-way NDA")
+              : (r.type_label || "").split(" / ")[0]} · {r.direction === "INBOUND" ? "their paper — we review" : "our paper — we send"}
           </span>
         )}
         {advice ? <LanePill lane={r.lane} /> : inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
@@ -304,7 +306,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 {/* the document */}
                 <div className="desk-paper">
                   <div className="desk-paper-head">
-                    <h1>{r.nda_type === "MUTUAL" ? "Mutual" : "One-Way"} Non-Disclosure Agreement</h1>
+                    <h1>{(r.type_label || "NDA").split(" / ")[0] === "NDA"
+                      ? `${r.nda_type === "MUTUAL" ? "Mutual" : "One-Way"} Non-Disclosure Agreement`
+                      : r.type_label}</h1>
                     <div className="parties">their paper — {r.counterparty_name}</div>
                   </div>
                   {clauses.map((c) => {

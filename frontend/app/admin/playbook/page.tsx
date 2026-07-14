@@ -88,9 +88,12 @@ export default function PlaybookAdmin() {
   async function newPlaybook() {
     const name = window.prompt("Name the new playbook (e.g. “M&A NDA”, “EU/GDPR NDA”):")?.trim();
     if (!name) return;
+    const typed = window.prompt("Contract type this playbook governs (nda, dpa):", "nda");
+    if (typed === null) return;  // Cancel aborts — don't silently create an NDA book
+    const ctype = (typed.trim() || "nda").toLowerCase();
     setBusy(true); setErr(null); setMsg(null);
     try {
-      const pb = await api.createPlaybook(name);
+      const pb = await api.createPlaybook(name, ctype);
       await loadBooks(pb.id);
       setMsg(`Created “${pb.name}”. It’s inactive — add rules, then “Set as default” to make the engine use it.`);
     } catch (e) { setErr(String(e).replace(/^Error:\s*/, "")); }
@@ -130,7 +133,7 @@ export default function PlaybookAdmin() {
           <select value={selId} onChange={(e) => setSelId(e.target.value)}>
             {books.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.name} · v{b.version} · {b.rule_count} rules{b.active ? " · default" : ""}
+                [{b.contract_type_key}] {b.name} · v{b.version} · {b.rule_count} rules{b.active ? " · default" : ""}
               </option>
             ))}
           </select>

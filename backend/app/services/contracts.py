@@ -91,6 +91,7 @@ def contract_registry(db: Session, org_id: str) -> dict:
             "ref": r.ref,
             "counterparty": cp.name if cp else "—",
             "nda_type": r.nda_type.value,
+            "type": (r.type or "nda").lower(),
             "direction": r.direction.value,
             "term_months": r.term_months,
             "executed_at": exec_.isoformat() if exec_ else None,
@@ -148,7 +149,7 @@ def start_renewal(db: Session, org_id: str, contract_id: str, *, actor_id: str, 
             counterparty_name=counterparty.name if counterparty else "Counterparty",
             nda_type=orig.nda_type.value, purpose=orig.purpose, jurisdiction=orig.jurisdiction,
             term_months=orig.term_months, channel="RENEWAL", playbook_id=orig.playbook_id,
-            renewed_from_id=orig.id,
+            renewed_from_id=orig.id, type_key=(orig.type or "nda").lower(),
         )
     except IntegrityError:
         db.rollback()

@@ -11,6 +11,7 @@ class CreateRequestIn(BaseModel):
     # requester is now the authenticated user; these are accepted but ignored
     requester_name: str | None = None
     requester_email: str | None = None
+    type_key: str = "nda"             # which CONTRACT engine drafts this
     counterparty_name: str
     nda_type: str = "MUTUAL"          # MUTUAL | ONE_WAY
     purpose: str = "sales_evaluation"
@@ -26,6 +27,7 @@ class ApproveStepIn(BaseModel):
 
 
 class CreateInboundIn(BaseModel):
+    type_key: str = "nda"             # which playbook family reviews their paper
     counterparty_name: str
     nda_type: str = "MUTUAL"
     purpose: str = "vendor_evaluation"
@@ -184,6 +186,7 @@ class RequestDetailOut(RequestSummaryOut):
 class RequesterStatusOut(BaseModel):
     ref: str
     counterparty_name: str
+    type_label: str | None = None   # "NDA / confidentiality", "DPA / data processing", …
     nda_type: str
     purpose: str
     stage: str            # friendly stage label

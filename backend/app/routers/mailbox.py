@@ -71,6 +71,15 @@ def upsert_mailbox(payload: MailboxIn, user: User = Depends(require(Permission.I
         pb = db.get(Playbook, payload.default_playbook_id)
         if pb is None or pb.org_id != user.org_id:
             raise HTTPException(400, "default_playbook_id not found for organisation")
+        # the email channel is NDA-only today (parse_intake extracts no contract
+        # type); pinning e.g. a DPA book here would make every polled message fail
+        # the resolver's type check and re-fail forever
+        if (pb.contract_type_key or "nda").lower() != "nda":
+            raise HTTPException(
+                400,
+                f"the email channel drafts and reviews NDAs — pick an NDA playbook, "
+                f"not a {pb.contract_type_key} one",
+            )
 
     mb = _mailbox(db, user.org_id)
     creating = mb is None

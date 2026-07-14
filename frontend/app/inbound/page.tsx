@@ -1,7 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api, type PlaybookSummary } from "../../lib/api";
+import { api, type PlaybookSummary, type RequestTypeInfo } from "../../lib/api";
 
 const SAMPLE = `1. Confidential Information
 "Confidential Information" means any information disclosed by Globex LLC to the Receiving Party in connection with the proposed engagement.
@@ -24,12 +24,23 @@ export default function InboundReview() {
   const [counterparty, setCounterparty] = useState("Globex LLC");
   const [body, setBody] = useState(SAMPLE);
   const [file, setFile] = useState<File | null>(null);
-  const [books, setBooks] = useState<PlaybookSummary[]>([]);
+  const [allBooks, setAllBooks] = useState<PlaybookSummary[]>([]);
   const [playbookId, setPlaybookId] = useState("");   // "" = org default
+  const [types, setTypes] = useState<RequestTypeInfo[]>([]);
+  const [typeKey, setTypeKey] = useState("nda");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  useEffect(() => { api.listPlaybooks().then(setBooks).catch(() => setBooks([])); }, []);
+  useEffect(() => {
+    api.listPlaybooks().then(setAllBooks).catch(() => setAllBooks([]));
+    api.requestTypes()
+      .then((all) => setTypes(all.filter((t) => t.category === "CONTRACT")))
+      .catch(() => setTypes([]));
+  }, []);
+  // named playbooks must belong to the selected contract type
+  const books = allBooks.filter((b) => b.contract_type_key === typeKey);
+  const typeShort = (types.find((t) => t.key === typeKey)?.label ?? "NDA").split(" / ")[0];
+  useEffect(() => { setPlaybookId(""); }, [typeKey]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,6 +49,7 @@ export default function InboundReview() {
     try {
       const fields = {
         counterparty_name: counterparty, nda_type: "ONE_WAY", purpose: "vendor_evaluation",
+        type_key: typeKey,
         ...(playbookId ? { playbook_id: playbookId } : {}),
       };
       const r = mode === "file" && file
@@ -53,11 +65,11 @@ export default function InboundReview() {
   return (
     <div className="container narrow">
       <p className="kicker">Inbound · third-party paper</p>
-      <h1 className="h-serif" style={{ fontSize: 28, margin: "8px 0 6px" }}>Review a counterparty&rsquo;s NDA</h1>
+      <h1 className="h-serif" style={{ fontSize: 28, margin: "8px 0 6px" }}>Review a counterparty&rsquo;s paper</h1>
       <p className="muted" style={{ marginBottom: 22 }}>
-        Paste the NDA they sent. The engine parses it clause-by-clause, checks it against your
-        playbook (numbers &amp; dates deterministically, positions semantically), and proposes
-        redlines you approve or reject.
+        Paste the contract they sent. The engine parses it clause-by-clause, checks it against the
+        matching playbook (numbers &amp; dates deterministically, positions semantically), and
+        proposes redlines you approve or reject.
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
@@ -66,16 +78,25 @@ export default function InboundReview() {
       </div>
 
       <form onSubmit={submit} className="card" style={{ padding: 24 }}>
-        <div className="field">
-          <label>Counterparty</label>
-          <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} required />
+        <div className="row2">
+          <div className="field">
+            <label>Counterparty</label>
+            <input value={counterparty} onChange={(e) => setCounterparty(e.target.value)} required />
+          </div>
+          <div className="field">
+            <label>What did they send?</label>
+            <select value={typeKey} onChange={(e) => setTypeKey(e.target.value)}>
+              {types.length === 0 && <option value="nda">NDA / confidentiality</option>}
+              {types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </div>
         </div>
 
-        {books.length > 1 && (
+        {(books.length > 1 || (books.length === 1 && !books[0].active)) && (
           <div className="field">
             <label>Review against playbook</label>
             <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)}>
-              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : ""}</option>
+              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : " (none set — pick one)"}</option>
               {books.map((b) => (
                 <option key={b.id} value={b.id}>{b.name} · v{b.version}{b.active ? " · default" : ""}</option>
               ))}
@@ -86,7 +107,7 @@ export default function InboundReview() {
 
         {mode === "paste" ? (
           <div className="field">
-            <label>Their NDA text</label>
+            <label>Their {typeShort} text</label>
             <textarea
               value={body}
               onChange={(e) => setBody(e.target.value)}
@@ -100,7 +121,7 @@ export default function InboundReview() {
           </div>
         ) : (
           <div className="field">
-            <label>Their NDA file (.docx, .pdf, .txt)</label>
+            <label>Their {typeShort} file (.docx, .pdf, .txt)</label>
             <label className="dropzone">
               <input type="file" accept=".docx,.pdf,.txt,.md" style={{ display: "none" }}
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)} />

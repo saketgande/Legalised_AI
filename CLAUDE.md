@@ -123,15 +123,38 @@ must keep working end-to-end at every checkpoint.
   in UI affordances).
 - **Type-to-confirm** on send-to-counterparty and rule delete.
 
+### ✅ Also done (Phase 2 — the platform generalizes beyond NDA)
+- **Type-scoped playbooks** — `Playbook.contract_type_key` (+ index); `active`
+  now means "the org default *for this type*" so NDA and DPA defaults coexist.
+  `resolve_playbook(db, org, playbook_id, contract_type)` type-checks named
+  books when the caller states a type (admin passes `None`); the default branch
+  resolves per type. Activation deactivates only same-type siblings.
+- **DPA is a full CONTRACT engine** — new `dpa` request type + seeded 9-rule
+  "Standard DPA (controller → processor)" playbook (sub-processor / breach-
+  notification / audit / liability ladders with fallbacks + walk-aways).
+  Outbound: drafted by assembly from the DPA book, **type gate** forces
+  attorney review (non-NDA contract types can never be AUTO; the ladder cites
+  the gate + fired routing rules, never triage's pro-approval lines). Inbound:
+  counterparty DPAs classify against a **rule-derived keyword map**
+  (`keyword_map_for` — no more NDA-hardcoded taxonomy), missing-mandatory
+  flagged, PENDING redlines as ever. Then the same approve → send → sign →
+  FILED → registry (`type: dpa`) → obligations loop.
+- **Founding-type fallback** — `nda` stays valid on an unseeded catalog
+  (tests/legacy); any other type must exist in the catalog or intake raises.
+- **Per-type frontend** — `/new` renders one `ContractForm` for every CONTRACT
+  type (NDA-only affordances gated on `isNda`, playbooks filtered by type);
+  `/inbound` gains a "What did they send?" selector; playbook admin creates
+  typed books and labels them `[nda]` / `[dpa]`; requester status + contracts
+  registry are type-aware.
+
 ### ⏳ Not yet built (next slices)
-1. **Phase 2 — second CONTRACT engine.** Only NDA runs the full
-   draft→redline→sign→file loop; vendor/MSA/DPA are ADVICE-tracked today.
-   Generalizing means: type-scoped playbooks (+ resolver), per-type clause
-   taxonomy (derive keywords from the playbook's own rules instead of the
-   NDA-hardcoded `CLAUSE_KEYWORDS`), per-type intake forms, per-type triage.
-2. **Real DocuSign** — the `send → executed` step is stubbed. The seam
+1. **Real DocuSign** — the `send → executed` step is stubbed. The seam
    (`get_esign_client()`, the HMAC webhook) is in place; wiring a real provider
    is the natural productionize step.
+2. **More CONTRACT engines** — MSA / vendor paper are ADVICE-tracked today.
+   The Phase 2 machinery makes each new engine a *seed problem*: add the type
+   to the catalog + seed a typed playbook; intake, generation, redlining,
+   approval, and the registry generalize already.
 3. **Design sweep** of the older surfaces (`/inbound`, `/chat`, `/email-sim`,
    `/admin`, `/admin/playbook`, `/login`) to match the redesigned core.
 4. **OCR for scanned PDFs** — image-only PDFs error with a clear message today.
@@ -179,6 +202,9 @@ a1b2c3d4e5f6  request_playbook_link
 b2c3d4e5f6a7  email_mailbox
 c3d4e5f6a7b8  contract_lifecycle (executed_at, expires_at, renewed_from_id)
 d4e5f6a7b8c9  unique_renewed_from (partial unique index — one renewal per contract)
+e5f6a7b8c9d0  intake_platform (request_type, routing_rule, obligation, queue-ops columns)
+f6a7b8c9d0e1  unique_obligation_per_request_kind
+a7b8c9d0e1f2  playbook_contract_type (contract_type_key + per-org type index)
 ```
 New schema changes are ordinary Alembic revisions chained from the current head.
 Never re-edit a migration that has shipped to production — add a new one on top.

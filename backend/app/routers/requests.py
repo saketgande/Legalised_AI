@@ -358,9 +358,9 @@ def create_request(
             counterparty_name=payload.counterparty_name, nda_type=payload.nda_type,
             purpose=payload.purpose, jurisdiction=payload.jurisdiction,
             term_months=payload.term_months, channel=payload.channel,
-            playbook_id=payload.playbook_id,
+            playbook_id=payload.playbook_id, type_key=payload.type_key,
         )
-    except PlaybookResolutionError as e:
+    except (PlaybookResolutionError, ValueError) as e:
         raise HTTPException(400, str(e))
     return _detail(db, r)
 
@@ -576,6 +576,7 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
         return {
             "ref": r.ref,
             "counterparty_name": type_label or "Legal request",
+            "type_label": type_label,
             "nda_type": r.nda_type.value,
             "purpose": (r.details or r.purpose)[:140],
             "stage": stage, "stage_index": idx, "stages": stages,
@@ -611,6 +612,7 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
     return {
         "ref": r.ref,
         "counterparty_name": cp.name if cp else "—",
+        "type_label": type_label,
         "nda_type": r.nda_type.value,
         "purpose": r.purpose,
         "stage": label,

@@ -31,31 +31,38 @@ function TypePicker({ types, onPick }: { types: RequestTypeInfo[]; onPick: (t: R
   );
 }
 
-/* ————— the NDA form (the CONTRACT engine's front door) ————— */
-function NdaForm({ onBack }: { onBack: () => void }) {
+/* ————— the contract form (every CONTRACT-engine type: NDA, DPA, …) ————— */
+function ContractForm({ type, onBack }: { type: RequestTypeInfo | null; onBack: () => void }) {
   const router = useRouter();
+  const isNda = !type || type.key === "nda";
+  const label = type?.label ?? "NDA";
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [books, setBooks] = useState<PlaybookSummary[]>([]);
   const [playbookId, setPlaybookId] = useState("");
   const [form, setForm] = useState({
-    counterparty_name: "", nda_type: "MUTUAL", purpose: "sales_evaluation",
-    jurisdiction: "US", term_months: 24,
+    counterparty_name: "", nda_type: "MUTUAL", purpose: isNda ? "sales_evaluation" : "vendor_evaluation",
+    jurisdiction: "US", term_months: isNda ? 24 : 12,
   });
 
-  useEffect(() => { api.listPlaybooks().then(setBooks).catch(() => setBooks([])); }, []);
+  useEffect(() => {
+    api.listPlaybooks()
+      .then((all) => setBooks(all.filter((b) => b.contract_type_key === (type?.key ?? "nda"))))
+      .catch(() => setBooks([]));
+  }, [type]);
   const set = (k: string, v: string | number) => setForm((f) => ({ ...f, [k]: v }));
 
+  // only the NDA wedge auto-sends; other contract types always see a lawyer
   const auto = useMemo(() =>
-    Number(form.term_months) <= 24 && AUTO_PURPOSES.has(form.purpose) && AUTO_JX.has(form.jurisdiction),
-    [form.term_months, form.purpose, form.jurisdiction]);
+    isNda && Number(form.term_months) <= 24 && AUTO_PURPOSES.has(form.purpose) && AUTO_JX.has(form.jurisdiction),
+    [isNda, form.term_months, form.purpose, form.jurisdiction]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true); setError(null);
     try {
       const r = await api.createRequest({
-        ...form, term_months: Number(form.term_months),
+        ...form, term_months: Number(form.term_months), type_key: type?.key ?? "nda",
         ...(playbookId ? { playbook_id: playbookId } : {}),
       });
       router.push(`/r/${r.id}`);
@@ -65,9 +72,9 @@ function NdaForm({ onBack }: { onBack: () => void }) {
   return (
     <div>
       <div className="page-head">
-        <p className="kicker"><button className="linkish" onClick={onBack}>← New request</button> · NDA</p>
-        <h1>Request an NDA</h1>
-        <p className="sub">Tell us who it&rsquo;s with and what it&rsquo;s for — we&rsquo;ll draft it and take it from there.</p>
+        <p className="kicker"><button className="linkish" onClick={onBack}>← New request</button> · {label}</p>
+        <h1>Request {isNda ? "an NDA" : `a ${label.split(" / ")[0]}`}</h1>
+        <p className="sub">Tell us who it&rsquo;s with and what it&rsquo;s for — we&rsquo;ll draft it from our standard terms and take it from there.</p>
       </div>
 
       <form onSubmit={submit} className="card card-pad">
@@ -77,15 +84,17 @@ function NdaForm({ onBack }: { onBack: () => void }) {
             onChange={(e) => set("counterparty_name", e.target.value)} />
         </div>
 
-        <div className="field">
-          <label>NDA type</label>
-          <div className="seg" style={{ width: "100%" }}>
-            <button type="button" className={form.nda_type === "MUTUAL" ? "on" : ""} style={{ flex: 1 }}
-              onClick={() => set("nda_type", "MUTUAL")}>Mutual <span className="faint" style={{ fontWeight: 400 }}>· both sides share</span></button>
-            <button type="button" className={form.nda_type === "ONE_WAY" ? "on" : ""} style={{ flex: 1 }}
-              onClick={() => set("nda_type", "ONE_WAY")}>One-way <span className="faint" style={{ fontWeight: 400 }}>· only we disclose</span></button>
+        {isNda && (
+          <div className="field">
+            <label>NDA type</label>
+            <div className="seg" style={{ width: "100%" }}>
+              <button type="button" className={form.nda_type === "MUTUAL" ? "on" : ""} style={{ flex: 1 }}
+                onClick={() => set("nda_type", "MUTUAL")}>Mutual <span className="faint" style={{ fontWeight: 400 }}>· both sides share</span></button>
+              <button type="button" className={form.nda_type === "ONE_WAY" ? "on" : ""} style={{ flex: 1 }}
+                onClick={() => set("nda_type", "ONE_WAY")}>One-way <span className="faint" style={{ fontWeight: 400 }}>· only we disclose</span></button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="row2">
           <div className="field">
@@ -108,17 +117,17 @@ function NdaForm({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="field">
-          <label>Confidentiality term (months)</label>
+          <label>{isNda ? "Confidentiality term (months)" : "Term (months)"}</label>
           <input type="number" required min={1} max={120} value={form.term_months}
             onChange={(e) => set("term_months", e.target.value)} style={{ maxWidth: 160 }} />
-          <span className="hint">How long the confidentiality lasts.</span>
+          <span className="hint">{isNda ? "How long the confidentiality lasts." : "How long the agreement runs before renewal."}</span>
         </div>
 
-        {books.length > 1 && (
+        {(books.length > 1 || (books.length === 1 && !books[0].active)) && (
           <div className="field">
             <label>Playbook</label>
             <select value={playbookId} onChange={(e) => setPlaybookId(e.target.value)}>
-              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : ""}</option>
+              <option value="">Org default{books.find((b) => b.active) ? ` (${books.find((b) => b.active)!.name})` : " (none set — pick one)"}</option>
               {books.map((b) => <option key={b.id} value={b.id}>{b.name} · v{b.version}{b.active ? " · default" : ""}</option>)}
             </select>
           </div>
@@ -217,13 +226,13 @@ export default function NewRequest() {
 
   if (!picked) {
     // no catalog (backend older than this build) -> fall straight into the NDA form
-    if (types.length === 0) return <div style={container}><NdaForm onBack={() => {}} /></div>;
+    if (types.length === 0) return <div style={container}><ContractForm type={null} onBack={() => {}} /></div>;
     return <div style={{ maxWidth: 720, margin: "0 auto" }}><TypePicker types={types} onPick={setPicked} /></div>;
   }
   return (
     <div style={container}>
       {picked.category === "CONTRACT"
-        ? <NdaForm onBack={() => setPicked(null)} />
+        ? <ContractForm type={picked} onBack={() => setPicked(null)} />
         : <AdviceForm type={picked} onBack={() => setPicked(null)} />}
     </div>
   );

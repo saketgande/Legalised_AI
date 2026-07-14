@@ -128,8 +128,14 @@ class HeuristicAIClient:
     def parse_intake(self, text: str) -> IntakeParse:
         return _guess_intake(text)
 
-    def compare_clause(self, clause_text: str, rule, ctx: dict) -> SemanticVerdict | None:
-        if rule.clause_type == "limitation_of_liability":
+    def compare_clause(self, clause_text: str, rule, ctx: dict,
+                       contract_type: str = "nda") -> SemanticVerdict | None:
+        # The carve-out demand below is NDA policy (a liability cap must except
+        # confidentiality breaches). Other contract types — e.g. a DPA whose
+        # preferred position is UNCAPPED processor liability — have different,
+        # sometimes inverted, positions; without a model we abstain rather than
+        # judge them with the wrong rulebook.
+        if contract_type == "nda" and rule.clause_type == "limitation_of_liability":
             t = clause_text.lower()
             has_carveout = "confidential" in t and any(
                 w in t for w in ("except", "nothing", "excluding", "other than")
@@ -196,7 +202,7 @@ class HeuristicAIClient:
 
 
 _SYSTEM = (
-    "You are senior in-house counsel reviewing a counterparty's NDA clause against "
+    "You are senior in-house counsel reviewing a counterparty's contract clause against "
     "your company's standard position. Judge strictly but fairly, from your company's "
     "perspective. Respond with ONLY a JSON object and no other text."
 )
@@ -333,8 +339,10 @@ class ClaudeAIClient:
             return self._fallback.draft_advice_answer(question, type_label)
         return str(data["answer"]).strip()[:4000]
 
-    def compare_clause(self, clause_text: str, rule, ctx: dict) -> SemanticVerdict | None:
+    def compare_clause(self, clause_text: str, rule, ctx: dict,
+                       contract_type: str = "nda") -> SemanticVerdict | None:
         user = (
+            f"Contract type under review: {contract_type.upper()}\n\n"
             f"Our standard position for the '{rule.heading}' clause:\n{rule.preferred_position}\n\n"
             f"Our preferred clause language:\n{rule.preferred_body}\n\n"
             f"The counterparty's clause:\n{clause_text}\n\n"
@@ -364,7 +372,7 @@ class ClaudeAIClient:
             text = resp.json()["content"][0]["text"]
             data = _extract_json(text)
             if data is None or "matches" not in data:
-                return self._fallback.compare_clause(clause_text, rule, ctx)
+                return self._fallback.compare_clause(clause_text, rule, ctx, contract_type)
             conf = float(data.get("confidence", 0.7))
             return SemanticVerdict(
                 matches=bool(data["matches"]),
@@ -375,7 +383,7 @@ class ClaudeAIClient:
             )
         except Exception:
             # network / API / parse failure -> never break the review
-            return self._fallback.compare_clause(clause_text, rule, ctx)
+            return self._fallback.compare_clause(clause_text, rule, ctx, contract_type)
 
 
 def get_ai_client():

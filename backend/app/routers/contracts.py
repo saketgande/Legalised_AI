@@ -17,6 +17,7 @@ from ..models import Request, User
 from ..permissions import Permission
 from ..security import require
 from ..services.contracts import ContractError, contract_registry, start_renewal
+from ..services.playbooks import PlaybookResolutionError
 from ..services.obligations import (
     ObligationError, extract_obligations_for_contract, list_obligations, resolve_obligation,
 )
@@ -81,6 +82,11 @@ def renew_contract(
         )
     except ContractError as e:
         raise HTTPException(404, str(e))
+    except (PlaybookResolutionError, ValueError) as e:
+        # e.g. the contract's type no longer has an active playbook — a fixable
+        # config problem, not a server fault
+        db.rollback()
+        raise HTTPException(409, str(e))
     return {
         "id": renewal.id,
         "ref": renewal.ref,

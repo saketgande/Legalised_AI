@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type RequestDetail, type SlaLegs } from "../../../lib/api";
 import { ChainLog, RiskBadge } from "../../components/Workflow";
 import { SlaLegsPanel, WorkflowStepper } from "../../components/Intake";
+import { MatterCopilot } from "../../components/MatterCopilot";
 
 function LanePill({ lane }: { lane: string | null }) {
   if (!lane) return null;
@@ -81,15 +82,16 @@ export default function TicketDetail({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {/* Request Workflow stepper */}
-      <div className="card card-pad" style={{ marginTop: 14 }}>
-        <WorkflowStepper r={r} />
-      </div>
-
-      {/* two columns: SLA custody legs + chain-sealed timeline */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14, alignItems: "start" }}>
-        <SlaLegsPanel requestId={r.id} />
-        <ChainLog events={r.timeline} />
+      {/* case-file record (left) + docked in-context AI copilot (right) */}
+      <div className="matter-grid">
+        <div style={{ display: "flex", flexDirection: "column", gap: 14, minWidth: 0 }}>
+          <div className="card card-pad"><WorkflowStepper r={r} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, alignItems: "start" }}>
+            <SlaLegsPanel requestId={r.id} />
+            <ChainLog events={r.timeline} />
+          </div>
+        </div>
+        <MatterCopilot requestId={r.id} matterRef={r.ref} />
       </div>
     </div>
   );

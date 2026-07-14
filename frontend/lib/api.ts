@@ -122,6 +122,25 @@ export type SlaLeg = {
   breached_during_leg: boolean;
 };
 
+export type DecisionAction = { key: string; label: string; primary: boolean };
+export type Decision = {
+  id: string;
+  kind: "advice_answer" | "redlines" | "ready_to_send" | "renewal" | string;
+  request_id: string;
+  ref: string;
+  title: string;
+  actor: string;
+  headline: string;
+  detail: string;
+  severity: "critical" | "warn" | "normal";
+  actions: DecisionAction[];
+  meta: Record<string, unknown>;
+};
+export type DecisionFeed = {
+  decisions: Decision[];
+  summary: { total: number; critical: number; by_kind: Record<string, number> };
+};
+
 export type EditorGrounding = { rule_key: string; heading: string; preferred: string; url: string };
 
 export type AgentStep = { key: string; title: string };
@@ -468,6 +487,9 @@ export const api = {
     }).then(j<{ token: string; user: AuthUser }>),
 
   me: () => fetch(`${BASE}/api/auth/me`, { headers: H(), cache: "no-store" }).then(j<AuthUser>),
+
+  // the supervisor feed — one decision stream across modules
+  decisions: () => fetch(`${BASE}/api/decisions`, { cache: "no-store", headers: H() }).then(j<DecisionFeed>),
 
   // agentic workflow — plan -> steps -> streamed recommendation
   agentRun: async (

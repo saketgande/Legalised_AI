@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
 from .routers import (
-    admin, agent, assistant, auth, contracts, editor, esign, inbound, intake, mailbox, meta, metrics,
+    admin, agent, assistant, auth, contracts, decisions, editor, esign, inbound, intake, mailbox, meta, metrics,
     playbook, requests, routing_admin, tabular, workflows,
 )
 
@@ -485,3 +485,4 @@ app.include_router(assistant.router)
 app.include_router(tabular.router)
 app.include_router(editor.router)
 app.include_router(agent.router)
+app.include_router(decisions.router)

@@ -71,6 +71,69 @@ export type RequestSummary = {
   esign_provider: string | null;
   esign_status: string | null;
   esign_envelope_id: string | null;
+  round: number;
+  risk_band: string | null;
+  risk_score: number | null;
+};
+
+export type RiskFactor = { label: string; points: number; kind: string };
+
+export type RiskAssessment = {
+  round: number;
+  score: number;
+  band: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+  factors: RiskFactor[];
+  ai_adjustment: number;
+  ai_note: string;
+  model: string;
+  created_at: string;
+};
+
+export type WorkflowRung = {
+  key: string;
+  kind: "D" | "A" | "H" | "T";
+  name: string;
+  desc: string;
+  mode: string;
+  rung: string | null;
+  sla_hours: number | null;
+  status: "waiting" | "active" | "done";
+  started_at: string | null;
+  completed_at: string | null;
+  spent_seconds: number;
+  round: number | null;
+};
+
+export type WorkflowInstance = {
+  template_name: string | null;
+  version: number | null;
+  rungs: WorkflowRung[];
+};
+
+export type WorkflowTemplateOut = {
+  id: string;
+  type_key: string;
+  name: string;
+  version: number;
+  active: boolean;
+  rungs: Record<string, unknown>[];
+  updated_at: string;
+};
+
+export type WorkflowLibrary = {
+  kinds: string[];
+  stages: string[];
+  cond_fields: Record<string, string>;
+  gate_rungs: string[];
+};
+
+export type RiskMatrixRow = {
+  type_key: string;
+  label: string;
+  active: boolean;
+  risk_ladders: Record<string, string[]>;
+  is_default: boolean;
+  bands: string[];
 };
 
 export type RequestTypeInfo = {
@@ -210,6 +273,9 @@ export type RequestDetail = RequestSummary & {
   details: string | null;
   resolution_draft: string | null;
   resolution_note: string | null;
+  risk: RiskAssessment | null;
+  risk_history: RiskAssessment[];
+  workflow: WorkflowInstance | null;
 };
 
 export type RequesterStatus = {
@@ -267,6 +333,11 @@ export type OpsSummary = {
   targets: Record<string, number>;
   volume_7d: number[];
   rows: OpsRow[];
+  workflow?: {
+    clock_seconds: Record<string, number>;
+    autonomy_rate: number | null;
+    override_rates: Record<string, { rate: number | null; decided: number }>;
+  };
 };
 
 export type ContractRow = {
@@ -380,6 +451,17 @@ export const api = {
   send: (id: string) =>
     fetch(`${BASE}/api/requests/${id}/send`, { method: "POST", headers: H() }).then(j<RequestDetail>),
 
+  // the negotiation loop
+  sendToCounterparty: (id: string) =>
+    fetch(`${BASE}/api/requests/${id}/send-to-counterparty`, { method: "POST", headers: H() }).then(j<RequestDetail>),
+  counterpartyReturn: (id: string, body_text: string) =>
+    fetch(`${BASE}/api/requests/${id}/counterparty-return`, JSON_POST({ body_text })).then(j<RequestDetail>),
+  counterpartyReturnUpload: (id: string, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return fetch(`${BASE}/api/requests/${id}/counterparty-return/upload`, { method: "POST", headers: H(), body: fd }).then(j<RequestDetail>);
+  },
+
   simulateSignature: (id: string) =>
     fetch(`${BASE}/api/requests/${id}/simulate-signature`, { method: "POST", headers: H() }).then(j<RequestDetail>),
 
@@ -482,6 +564,24 @@ export const api = {
     fetch(`${BASE}/api/contracts/${id}/renew`, { method: "POST", headers: H() }).then(
       j<{ id: string; ref: string; state: string; lane: string | null; renewed_from_id: string }>,
     ),
+
+  // workflow designer + risk-ladder matrix (admin)
+  listWorkflows: () => fetch(`${BASE}/api/admin/workflows`, { cache: "no-store", headers: H() })
+    .then(j<{ templates: WorkflowTemplateOut[]; library: WorkflowLibrary }>),
+  createWorkflow: (type_key: string, name: string) =>
+    fetch(`${BASE}/api/admin/workflows`, JSON_POST({ type_key, name })).then(j<WorkflowTemplateOut>),
+  updateWorkflow: (id: string, body: { name?: string; rungs?: Record<string, unknown>[] }) =>
+    fetch(`${BASE}/api/admin/workflows/${id}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<WorkflowTemplateOut>),
+  publishWorkflow: (id: string) =>
+    fetch(`${BASE}/api/admin/workflows/${id}/publish`, { method: "POST", headers: H() }).then(j<WorkflowTemplateOut>),
+  activateWorkflow: (id: string) =>
+    fetch(`${BASE}/api/admin/workflows/${id}/activate`, { method: "POST", headers: H() }).then(j<WorkflowTemplateOut>),
+  riskMatrices: () => fetch(`${BASE}/api/admin/workflows/risk-matrix`, { cache: "no-store", headers: H() })
+    .then(j<{ matrices: RiskMatrixRow[] }>).then((r) => r.matrices),
+  saveRiskMatrix: (type_key: string, risk_ladders: Record<string, string[]>) =>
+    fetch(`${BASE}/api/admin/workflows/risk-matrix/${type_key}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify({ risk_ladders }) }).then(j<{ ok: boolean; risk_ladders: Record<string, string[]> }>),
+  resetRiskMatrix: (type_key: string) =>
+    fetch(`${BASE}/api/admin/workflows/risk-matrix/${type_key}/reset`, { method: "POST", headers: H() }).then(j<{ ok: boolean; risk_ladders: Record<string, string[]> }>),
 
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),

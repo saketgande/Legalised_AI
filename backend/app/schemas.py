@@ -150,6 +150,8 @@ class RequestSummaryOut(BaseModel):
     esign_status: str | None = None
     esign_envelope_id: str | None = None
     round: int = 1
+    risk_band: str | None = None
+    risk_score: int | None = None
 
 
 class ProposedChangeOut(BaseModel):

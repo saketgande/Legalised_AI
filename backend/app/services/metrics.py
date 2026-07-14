@@ -50,6 +50,55 @@ def _target_for(r: Request) -> int:
     return r.sla_target_hours if r.sla_target_hours else _target(r.lane)
 
 
+def _workflow_insights(db: Session, org_id: str, reqs: list[Request]) -> dict:
+    """Where the clock goes (by rung kind, from instance timings), autonomy
+    (rungs completed without a human), and per-type override rate (how often a
+    lawyer edits/rejects what the engine proposed — the template-health metric)."""
+    from ..models import ProposedChange, ReviewRun
+
+    clock = {"D": 0, "A": 0, "H": 0, "T": 0}
+    rungs_done = rungs_auto = 0
+    for r in reqs:
+        for rung in (r.workflow_rungs or []):
+            kind = rung.get("kind")
+            if kind in clock:
+                clock[kind] += int(rung.get("spent_seconds") or 0)
+            if rung.get("status") == "done":
+                rungs_done += 1
+                if kind in ("D", "A"):
+                    rungs_auto += 1
+
+    # override rate per contract type: decisions where the human changed the
+    # engine's proposal (edited or rejected) / all decided proposals
+    per_type: dict[str, dict[str, int]] = {}
+    run_rows = db.execute(
+        select(ReviewRun.id, Request.type).join(Request, ReviewRun.request_id == Request.id)
+        .where(Request.org_id == org_id)
+    ).all()
+    type_by_run = {rid: (t or "nda").lower() for rid, t in run_rows}
+    if type_by_run:
+        for run_id, decision in db.execute(
+            select(ProposedChange.run_id, ProposedChange.decision)
+            .where(ProposedChange.run_id.in_(list(type_by_run.keys())),
+                   ProposedChange.decision != "PENDING")
+        ).all():
+            t = type_by_run.get(run_id, "nda")
+            bucket = per_type.setdefault(t, {"decided": 0, "overridden": 0})
+            bucket["decided"] += 1
+            if decision in ("APPROVED_WITH_EDIT", "REJECTED"):
+                bucket["overridden"] += 1
+
+    return {
+        "clock_seconds": clock,
+        "autonomy_rate": (rungs_auto / rungs_done) if rungs_done else None,
+        "override_rates": {
+            t: {"rate": (b["overridden"] / b["decided"]) if b["decided"] else None,
+                "decided": b["decided"]}
+            for t, b in sorted(per_type.items())
+        },
+    }
+
+
 def ops_metrics(db: Session, org_id: str) -> dict:
     now = datetime.now(timezone.utc)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -139,7 +188,10 @@ def ops_metrics(db: Session, org_id: str) -> dict:
     order = {"breached": 0, "at_risk": 1, "on_track": 2, "missed": 3, "met": 4, "cancelled": 5}
     rows.sort(key=lambda x: (order.get(x["status"], 9), -((x["elapsed_hours"] or 0))))
 
+    workflow = _workflow_insights(db, org_id, reqs)
+
     return {
+        "workflow": workflow,
         "totals": {"total": total, "in_flight": in_flight, "resolved": resolved,
                    "auto_resolved": auto, "cancelled": cancelled},
         "deflection_rate": (auto / total) if total else 0.0,

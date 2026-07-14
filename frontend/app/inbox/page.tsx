@@ -269,8 +269,19 @@ export default function Inbox() {
                       {isSnoozed(r) && <span className="sub">zzz until {new Date(r.snoozed_until!).toLocaleDateString()}</span>}
                     </td>
                     <td className="muted" style={{ whiteSpace: "nowrap" }}>{r.type_label || (r.nda_type === "MUTUAL" ? "NDA · mutual" : "NDA · one-way")}</td>
-                    <td><LanePill lane={r.lane} /></td>
-                    <td><span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span></td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <LanePill lane={r.lane} />
+                      {r.risk_band && r.category === "CONTRACT" && (
+                        <span className={`pill ${r.risk_band === "LOW" ? "good" : r.risk_band === "MEDIUM" ? "warn" : "crit"}`}
+                          style={{ marginLeft: 4 }} title={`AI risk score ${r.risk_score}/100`}>
+                          {r.risk_band}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span>
+                      {r.round > 1 && <span className="pill accent" style={{ marginLeft: 4 }}>r{r.round}</span>}
+                    </td>
                     <td className="muted" style={{ whiteSpace: "nowrap" }}>{r.assigned_to_name || <span className="faint">—</span>}</td>
                     <td><span className={`age ${over ? "over" : ""}`}>{age === 0 ? "today" : `${age}d`}{over && " ⚠"}</span></td>
                     <td>

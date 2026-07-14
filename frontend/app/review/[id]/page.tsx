@@ -5,6 +5,81 @@ import { api, RUNG_RANK, type ProposedChange, type RequestDetail } from "../../.
 import { useAuth } from "../../../lib/auth";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Timeline } from "../../components/Timeline";
+import { RiskBadge, WorkflowRail } from "../../components/Workflow";
+
+/* ---------- the negotiation loop panel (shared by inbound + outbound) ---------- */
+function NegotiationPanel({ r, busy, act, onSignature }: {
+  r: RequestDetail; busy: boolean;
+  act: (fn: () => Promise<RequestDetail>) => void;
+  onSignature: () => void;
+}) {
+  const [showReturn, setShowReturn] = useState(false);
+  const [returnText, setReturnText] = useState("");
+  const [returnFile, setReturnFile] = useState<File | null>(null);
+  const withCp = r.state === "WITH_COUNTERPARTY";
+  const approved = r.state === "APPROVED";
+
+  if (!approved && !withCp) return null;
+  return (
+    <div className="card" style={{ padding: 16, borderColor: withCp ? "var(--warn-line, var(--hairline))" : undefined }}>
+      <div className="kicker" style={{ marginBottom: 10 }}>
+        Negotiation · round {r.round}
+      </div>
+      {approved && (
+        <>
+          <button className="btn" style={{ width: "100%", marginBottom: 8 }} disabled={busy}
+            onClick={() => act(() => api.sendToCounterparty(r.id))}>
+            Send to counterparty for review →
+          </button>
+          <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={onSignature}>
+            Send for signature (terms agreed)
+          </button>
+          <p className="faint" style={{ fontSize: 11.5, margin: "8px 0 0" }}>
+            Review = they can mark it up and send it back (the loop). Signature = the terms are final.
+          </p>
+        </>
+      )}
+      {withCp && (
+        <>
+          <div className="notice info" style={{ marginBottom: 10 }}>
+            With {r.counterparty_name} for review — round {r.round}. When their markup comes back,
+            record it here (or let the email intake thread-match it by ref).
+          </div>
+          {!showReturn ? (
+            <button className="btn primary" style={{ width: "100%" }} onClick={() => setShowReturn(true)}>
+              Record their return →
+            </button>
+          ) : (
+            <div>
+              <textarea rows={7} value={returnText} onChange={(e) => setReturnText(e.target.value)}
+                placeholder="Paste the full text of their returned markup…"
+                style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12 }} />
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>
+                <label className="btn ghost sm" style={{ cursor: "pointer" }}>
+                  {returnFile ? returnFile.name : "…or upload .docx / .pdf"}
+                  <input type="file" accept=".docx,.pdf,.txt,.md" style={{ display: "none" }}
+                    onChange={(e) => setReturnFile(e.target.files?.[0] ?? null)} />
+                </label>
+                <span style={{ flex: 1 }} />
+                <button className="btn ghost sm" onClick={() => { setShowReturn(false); setReturnText(""); setReturnFile(null); }}>Cancel</button>
+                <button className="btn primary sm" disabled={busy || (!returnText.trim() && !returnFile)}
+                  onClick={() => act(() => returnFile
+                    ? api.counterpartyReturnUpload(r.id, returnFile)
+                    : api.counterpartyReturn(r.id, returnText))}>
+                  {busy ? "Reviewing…" : "Run round-" + (r.round + 1) + " review"}
+                </button>
+              </div>
+              <p className="faint" style={{ fontSize: 11.5, margin: "8px 0 0" }}>
+                Their paper is re-redlined against the playbook, re-scored, and a fresh
+                approval ladder is built from the new risk band.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 /* ---------- markdown renderers ---------- */
 function inline(text: string, key: number) {
@@ -172,6 +247,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         )}
         {advice ? <LanePill lane={r.lane} /> : inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
         <span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span>
+        {!advice && <RiskBadge risk={r.risk} />}
+        {!advice && r.round > 1 && <span className="pill accent">↺ round {r.round}</span>}
         {r.playbook_name && (
           <span className="pill accent" title="The playbook this request was reviewed against">
             📕 {r.playbook_name} v{r.playbook_version}
@@ -337,12 +414,45 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
                 {/* margin comments = the proposed redlines */}
                 <div className="desk-margin">
+                  <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)} />
+                  {r.ladder && r.ladder.steps.some((s) => s.status === "PENDING") && (
+                    <div className="card" style={{ padding: 16 }}>
+                      <div className="kicker" style={{ marginBottom: 10 }}>Approval ladder · round {r.round}</div>
+                      <div className="ladder-rows">
+                        {r.ladder.steps.map((s) => {
+                          const done = s.status === "APPROVED";
+                          return (
+                            <div key={s.id} className={`lr ${done ? "done" : "here"}`}>
+                              <span className="lnode" />
+                              <div style={{ flex: 1 }}>
+                                <div className="who2">{s.assignee_name ?? s.rung} · {s.rung.replace(/_/g, " ")}{done && " ✓"}</div>
+                                <div className="why">{s.reason}</div>
+                                {!done && (
+                                  <button className="btn primary" style={{ marginTop: 8, padding: "6px 12px", fontSize: 12.5 }}
+                                    disabled={busy || !canClear(s.rung)}
+                                    title={canClear(s.rung) ? "" : `Needs ${s.rung.replace(/_/g, " ")} sign-off`}
+                                    onClick={() => act(() => api.approveStep(s.id))}>
+                                    Approve as {s.rung.replace(/_/g, " ")}
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   <div className="desk-margin-label">Open redlines · {changes.length}</div>
                   {changes.map((c) => (
                     <ChangeCard key={c.id} c={c} busy={busy} canApprove={canClear(c.triggered_rung)}
                       canLearn={canLearn} onLearn={() => learn(c.id, c.rule_key)}
                       onDecide={(a, t) => act(() => api.decideChange(c.id, a, t))} />
                   ))}
+                  {r.workflow && (
+                    <div className="card card-pad" style={{ marginTop: 4 }}>
+                      <WorkflowRail wf={r.workflow} round={r.round} />
+                    </div>
+                  )}
                   <div className="card card-pad" style={{ marginTop: 4 }}>
                     <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
                     <Timeline events={r.timeline} />
@@ -411,22 +521,29 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 </div>
               </div>
             )}
-            <div className="card" style={{ padding: 16 }}>
-              <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>
-              {canSend && <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={() => setConfirmSend(true)}>Approve &amp; send for signature</button>}
-              {outForSig && (<>
-                <div className="notice info" style={{ marginBottom: 10 }}>
-                  Sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
-                </div>
-                {r.esign_envelope_id && <div className="mono muted" style={{ fontSize: 11, marginBottom: 10 }}>envelope {r.esign_envelope_id}</div>}
-                {r.esign_provider !== "docusign" && (
-                  <button className="btn" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
-                )}
-              </>)}
-              {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}. Renewal in {r.term_months} months tracked.</div>}
-              {!canSend && !outForSig && !filed && <div className="muted" style={{ fontSize: 12.5 }}>Clear the approval ladder to unlock sending.</div>}
-              {err && <div className="notice warn" style={{ marginTop: 10 }}>{err}</div>}
-            </div>
+            <NegotiationPanel r={r} busy={busy} act={act} onSignature={() => setConfirmSend(true)} />
+            {(outForSig || filed || (!canSend && r.state !== "WITH_COUNTERPARTY")) && (
+              <div className="card" style={{ padding: 16 }}>
+                <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>
+                {outForSig && (<>
+                  <div className="notice info" style={{ marginBottom: 10 }}>
+                    Sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
+                  </div>
+                  {r.esign_envelope_id && <div className="mono muted" style={{ fontSize: 11, marginBottom: 10 }}>envelope {r.esign_envelope_id}</div>}
+                  {r.esign_provider !== "docusign" && (
+                    <button className="btn" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.simulateSignature(params.id))}>Simulate counterparty signature (dev)</button>
+                  )}
+                </>)}
+                {filed && <div className="notice info" style={{ background: "var(--good-soft)", color: "var(--good)" }}>✓ Executed and filed{r.esign_provider ? ` (${r.esign_provider})` : ""}. Renewal in {r.term_months} months tracked.</div>}
+                {!canSend && !outForSig && !filed && r.state !== "WITH_COUNTERPARTY" && <div className="muted" style={{ fontSize: 12.5 }}>Clear the approval ladder to unlock sending.</div>}
+              </div>
+            )}
+            {err && <div className="notice warn">{err}</div>}
+            {r.workflow && (
+              <div className="card" style={{ padding: 16 }}>
+                <WorkflowRail wf={r.workflow} round={r.round} />
+              </div>
+            )}
             <div className="card" style={{ padding: 16 }}>
               <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
               <Timeline events={r.timeline} />

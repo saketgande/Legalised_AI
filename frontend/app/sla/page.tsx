@@ -164,6 +164,66 @@ export default function SlaDashboard() {
         </div>
       </div>
 
+      {/* workflow insights: where the clock goes + autonomy + template health */}
+      {d.workflow && (() => {
+        const clock = d.workflow!.clock_seconds || {};
+        const total = Math.max(1, (clock.D || 0) + (clock.A || 0) + (clock.H || 0) + (clock.T || 0));
+        const pct = (k: string) => Math.round(((clock[k] || 0) / total) * 100);
+        const KINDS: [string, string, string][] = [
+          ["T", "Third-party rungs", "#2E7D74"], ["H", "Human rungs", "#6C4E9E"],
+          ["A", "AI rungs", "#3E6FB0"], ["D", "Deterministic rungs", "#9E6D12"],
+        ];
+        const auton = d.workflow!.autonomy_rate;
+        const overrides = Object.entries(d.workflow!.override_rates || {});
+        return (
+          <div className="card card-pad" style={{ marginBottom: 16 }}>
+            <div className="kicker" style={{ marginBottom: 12 }}>Workflow engine · where the clock actually goes</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+              <div>
+                {KINDS.map(([k, label, color]) => (
+                  <div key={k} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, fontSize: 12.5 }}>
+                    <span style={{ minWidth: 150, fontWeight: 600 }}>{label}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--hairline)", overflow: "hidden" }}>
+                      <span style={{ display: "block", height: "100%", width: `${pct(k)}%`, background: color }} />
+                    </div>
+                    <span className="tnum faint" style={{ minWidth: 40, textAlign: "right", fontSize: 11 }}>{pct(k)}%</span>
+                  </div>
+                ))}
+                <p className="faint" style={{ fontSize: 11.5, margin: "6px 0 0" }}>
+                  Live from per-rung timings. Machine rungs decide in seconds — the clock lives with humans and counterparties.
+                </p>
+              </div>
+              <div>
+                <div style={{ display: "flex", gap: 26, marginBottom: 12 }}>
+                  <div>
+                    <div className="lbl" style={{ fontSize: 10.5 }}>Rung autonomy</div>
+                    <div className="val tnum" style={{ fontSize: 24 }}>{auton == null ? "—" : `${Math.round(auton * 100)}%`}</div>
+                    <div className="faint" style={{ fontSize: 11 }}>rungs completed with no human</div>
+                  </div>
+                </div>
+                <div className="lbl" style={{ fontSize: 10.5, marginBottom: 6 }}>Override rate by contract type</div>
+                {overrides.length === 0 && <div className="faint" style={{ fontSize: 12 }}>No decided redlines yet.</div>}
+                {overrides.map(([t, o]) => (
+                  <div key={t} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, fontSize: 12.5 }}>
+                    <span style={{ minWidth: 60, fontWeight: 600 }}>{t.toUpperCase()}</span>
+                    <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--hairline)", overflow: "hidden" }}>
+                      <span style={{ display: "block", height: "100%", width: `${Math.round((o.rate ?? 0) * 100)}%`,
+                        background: (o.rate ?? 0) > 0.25 ? "var(--crit, #B04141)" : "var(--good, #1F6F54)" }} />
+                    </div>
+                    <span className="tnum faint" style={{ minWidth: 74, textAlign: "right", fontSize: 11 }}>
+                      {o.rate == null ? "—" : `${Math.round(o.rate * 100)}%`} · n={o.decided}
+                    </span>
+                  </div>
+                ))}
+                <p className="faint" style={{ fontSize: 11.5, margin: "6px 0 0" }}>
+                  When counsel keeps editing what the engine proposes, the playbook is wrong — fix the template, not every matter.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* volume + target legend strip */}
       <div className="card card-pad" style={{ marginBottom: 26 }}>
         <div className="qhealth">

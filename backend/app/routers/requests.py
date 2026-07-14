@@ -196,12 +196,14 @@ def _type_info(db: Session, r: Request) -> tuple[str | None, str]:
 
 def _summary(db: Session, r: Request) -> dict:
     from ..models import Playbook
+    from ..services.risk import latest_assessment
 
     cp = db.get(Counterparty, r.counterparty_id)
     person = db.get(Person, r.requester_id)
     pb = db.get(Playbook, r.playbook_id) if r.playbook_id else None
     assignee = db.get(User, r.assigned_to_user_id) if r.assigned_to_user_id else None
     type_label, category = _type_info(db, r)
+    risk = latest_assessment(db, r.id)
     return {
         "id": r.id,
         "ref": r.ref,
@@ -231,6 +233,8 @@ def _summary(db: Session, r: Request) -> dict:
         "esign_status": r.esign_status,
         "esign_envelope_id": r.esign_envelope_id,
         "round": r.round or 1,
+        "risk_band": risk.band.value if risk else None,
+        "risk_score": risk.score if risk else None,
     }
 
 

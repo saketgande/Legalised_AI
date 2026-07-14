@@ -692,3 +692,21 @@ select { background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w
 
 /* audit panel already dark — nudge to Aurora navy */
 .chainlog { background: var(--ink-panel); border: 1px solid var(--line); }
+
+/* ————— Triage Cockpit ————— */
+.cockpit-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px;
+  flex-wrap: wrap; margin-bottom: 14px; padding: 10px 14px; background: var(--surface);
+  border: 1px solid var(--line); border-left: 3px solid var(--teal); border-radius: 8px; }
+.cbar-stats { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.cbar-k { font-family: var(--mono); font-size: 9px; color: var(--faint); letter-spacing: 0.14em;
+  text-transform: uppercase; font-weight: 600; }
+.cbar-v { font-family: var(--serif); font-size: 15px; color: var(--ink); margin-top: 1px; }
+.cbar-div { width: 1px; height: 28px; background: var(--line); }
+.cockpit-hints { margin-top: 14px; padding: 9px 14px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 6px; display: flex; justify-content: space-between;
+  align-items: center; flex-wrap: wrap; gap: 10px; font-family: var(--mono); font-size: 10px;
+  color: var(--faint); letter-spacing: 0.03em; }
+.cockpit-hints kbd { margin-right: 2px; }
+.modal-scrim { position: fixed; inset: 0; background: color-mix(in srgb, var(--ink) 32%, transparent);
+  backdrop-filter: blur(2px); z-index: 100; display: flex; align-items: flex-start;
+  justify-content: center; padding: 14vh 16px 16px; }

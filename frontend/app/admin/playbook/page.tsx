@@ -7,7 +7,7 @@ const RUNGS = ["none", "requesting_manager", "vp_legal", "gc"];
 const EMPTY: PlaybookRule = {
   id: "", rule_key: "", clause_type: "", heading: "", ordinal: 0,
   preferred_position: "", preferred_body: "", rationale: "", mandatory: true,
-  deviation_rung: "none", nda_type: null,
+  deviation_rung: "none", nda_type: null, fallbacks: [], walk_away_text: "",
 };
 
 const ta: React.CSSProperties = {
@@ -66,6 +66,8 @@ export default function PlaybookAdmin() {
       ordinal: Number(draft.ordinal), preferred_position: draft.preferred_position,
       preferred_body: draft.preferred_body, rationale: draft.rationale, mandatory: draft.mandatory,
       deviation_rung: draft.deviation_rung, nda_type: draft.nda_type,
+      fallbacks: (draft.fallbacks || []).filter((f) => f.body.trim()),
+      walk_away_text: draft.walk_away_text || "",
     };
     try {
       if (draft.id) await api.updateRule(draft.id, body, selId);
@@ -180,6 +182,40 @@ export default function PlaybookAdmin() {
           <div className="field"><label>Preferred position (short)</label><input value={draft.preferred_position} onChange={(e) => set("preferred_position", e.target.value)} style={ta} /></div>
           <div className="field"><label>Preferred clause language</label><textarea rows={4} value={draft.preferred_body} onChange={(e) => set("preferred_body", e.target.value)} style={ta} /></div>
           <div className="field"><label>Rationale (shown to approvers)</label><textarea rows={2} value={draft.rationale} onChange={(e) => set("rationale", e.target.value)} style={ta} /></div>
+
+          {/* the position ladder: preferred (above) → fallbacks (here) → walk-away */}
+          <div className="kicker" style={{ margin: "10px 0 6px" }}>Fallback positions (in order of preference)</div>
+          {(draft.fallbacks || []).map((fb, i) => (
+            <div key={i} className="card" style={{ padding: "10px 12px", marginBottom: 8, background: "var(--surface-2)" }}>
+              <div style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                <input placeholder={`Fallback ${i + 1} label (e.g. "24-month cap")`} value={fb.label}
+                  onChange={(e) => set("fallbacks", draft.fallbacks.map((f, j) => j === i ? { ...f, label: e.target.value } : f))}
+                  style={{ flex: 1 }} />
+                <select value={fb.rung}
+                  onChange={(e) => set("fallbacks", draft.fallbacks.map((f, j) => j === i ? { ...f, rung: e.target.value } : f))}
+                  style={{ width: 190 }}>
+                  {RUNGS.map((g) => <option key={g} value={g}>approval: {g.replace(/_/g, " ")}</option>)}
+                </select>
+                <button className="icon-x" title="Remove fallback"
+                  onClick={() => set("fallbacks", draft.fallbacks.filter((_, j) => j !== i))}>✕</button>
+              </div>
+              <textarea rows={2} placeholder="Acceptable clause language at this fallback…" value={fb.body}
+                onChange={(e) => set("fallbacks", draft.fallbacks.map((f, j) => j === i ? { ...f, body: e.target.value } : f))}
+                style={ta} />
+            </div>
+          ))}
+          {(draft.fallbacks || []).length < 5 && (
+            <button className="btn sm ghost" style={{ marginBottom: 10 }}
+              onClick={() => set("fallbacks", [...(draft.fallbacks || []), { label: "", body: "", rung: "vp_legal" }])}>
+              + Add fallback position
+            </button>
+          )}
+          <div className="field">
+            <label>Walk-away line <span className="faint" style={{ fontWeight: 400 }}>— the position we never accept; crossing it always escalates to GC</span></label>
+            <textarea rows={2} value={draft.walk_away_text} onChange={(e) => set("walk_away_text", e.target.value)}
+              placeholder='e.g. "Any cap that applies to breaches of confidentiality."' style={ta} />
+          </div>
+
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
             <button className="btn primary" disabled={busy} onClick={save}>{busy ? "Saving…" : "Save rule"}</button>
             <button className="btn ghost" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
@@ -197,6 +233,8 @@ export default function PlaybookAdmin() {
               </div>
               <div className="muted" style={{ fontSize: 12 }}>
                 {r.clause_type}{r.deviation_rung !== "none" ? ` · deviation → ${r.deviation_rung.replace(/_/g, " ")}` : ""}{r.nda_type ? ` · ${r.nda_type}` : ""}
+                {(r.fallbacks?.length ?? 0) > 0 && ` · ${r.fallbacks.length} fallback${r.fallbacks.length > 1 ? "s" : ""}`}
+                {r.walk_away_text && " · walk-away set"}
               </div>
             </div>
             <button className="btn ghost sm" onClick={() => { setDraft(r); setMsg(null); }}>Edit</button>

@@ -289,14 +289,49 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
                     conf = verdict.confidence
 
         if is_dev:
+            # Position-ladder pass (Ivo-style): a deviation may still sit inside an
+            # acceptable FALLBACK (accept their language at that fallback's approval
+            # price) or cross the WALK-AWAY line (always escalates to GC).
+            finding = "DEVIATION"
+            rung = rule.deviation_rung
+            rationale = rule.rationale or f"Outside our position on {rule.heading.lower()}."
+            ladder = ai.place_on_ladder(clause.body_text, rule, ctx) if (
+                (rule.fallbacks or []) or (rule.walk_away_text or "").strip()
+            ) else None
+            if ladder is not None:
+                checks.append({
+                    "kind": "SEMANTIC", "name": "position_ladder", "passed": ladder.position == "fallback",
+                    "detail": f"{ladder.position}: {ladder.note}", "model": ladder.model,
+                })
+                if ladder.position == "fallback" and ladder.fallback_index is not None:
+                    fb = (rule.fallbacks or [])[ladder.fallback_index]
+                    finding = "ACCEPTABLE_FALLBACK"
+                    rung = fb.get("rung") or rule.deviation_rung
+                    after = clause.body_text  # accept their language at the fallback price
+                    rationale = (
+                        f"Their language sits within our fallback position "
+                        f"'{fb.get('label', f'#{ladder.fallback_index + 1}')}' — acceptable "
+                        f"with {rung.replace('_', ' ')} approval." if rung != "none" else
+                        f"Their language sits within our fallback position "
+                        f"'{fb.get('label', f'#{ladder.fallback_index + 1}')}' — acceptable as-is."
+                    )
+                elif ladder.position == "walk_away":
+                    rung = "gc"
+                    rationale = (
+                        f"WALK-AWAY BREACH — their clause crosses the line we never accept "
+                        f"({rule.walk_away_text.strip()}). Propose our preferred language; "
+                        "GC sign-off required to proceed at all."
+                    )
+                if conf is None:
+                    conf = ladder.confidence
             ordinal += 1
             changes.append(ProposedChange(
                 run_id=run.id, ordinal=ordinal, clause_id=clause.id,
                 section_no=clause.section_no, heading=rule.heading,
-                finding="DEVIATION", rule_key=rule.rule_key,
+                finding=finding, rule_key=rule.rule_key,
                 before_text=clause.body_text, after_text=after,
-                rationale=rule.rationale or f"Outside our position on {rule.heading.lower()}.",
-                checks=checks, confidence=conf, triggered_rung=rule.deviation_rung,
+                rationale=rationale,
+                checks=checks, confidence=conf, triggered_rung=rung,
             ))
 
     # 2) mandatory clauses the counterparty omitted entirely
@@ -320,7 +355,9 @@ def run_inbound_review(db: Session, request: Request, ai=None) -> ReviewRun:
     for c in changes:
         key = c.finding.lower()
         summary[key] = summary.get(key, 0) + 1
-    summary["compliant"] = max(0, len(seen_types) - summary["deviation"])
+    summary["compliant"] = max(
+        0, len(seen_types) - summary["deviation"] - summary.get("acceptable_fallback", 0)
+    )
     run.summary = summary
     db.flush()
     return run

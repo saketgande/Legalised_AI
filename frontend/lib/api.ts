@@ -47,6 +47,8 @@ export type RequestSummary = {
   id: string;
   ref: string;
   type: string;
+  type_label: string | null;
+  category: "CONTRACT" | "ADVICE";
   direction: string;
   nda_type: string;
   state: string;
@@ -58,6 +60,11 @@ export type RequestSummary = {
   term_months: number;
   created_at: string;
   open_steps: number;
+  priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
+  assigned_to_user_id: string | null;
+  assigned_to_name: string | null;
+  snoozed_until: string | null;
+  sla_target_hours: number | null;
   playbook_id: string | null;
   playbook_name: string | null;
   playbook_version: number | null;
@@ -65,6 +72,53 @@ export type RequestSummary = {
   esign_status: string | null;
   esign_envelope_id: string | null;
 };
+
+export type RequestTypeInfo = {
+  key: string;
+  label: string;
+  description: string;
+  category: "CONTRACT" | "ADVICE";
+  default_sla_hours: number;
+};
+
+export type RoutingRuleOut = {
+  id: string;
+  name: string;
+  ordinal: number;
+  active: boolean;
+  stop_on_match: boolean;
+  match_type_key: string | null;
+  match_direction: string | null;
+  match_keyword: string | null;
+  match_jurisdiction: string | null;
+  set_assignee_user_id: string | null;
+  set_assignee_name: string | null;
+  set_priority: string | null;
+  set_sla_hours: number | null;
+  escalate: boolean;
+};
+
+export type RulePreview = {
+  evaluated: number;
+  matched: number;
+  matches: { ref: string; type: string; counterparty: string; state: string; created_at: string }[];
+};
+
+export type AssignableUser = { id: string; name: string; role: string };
+
+export type Obligation = {
+  id: string;
+  kind: string;
+  description: string;
+  due_at: string | null;
+  status: "OPEN" | "DONE" | "WAIVED";
+  overdue: boolean;
+  source: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+};
+
+export type PlaybookFallback = { label: string; body: string; rung: string };
 
 export type PlaybookSummary = {
   id: string;
@@ -115,6 +169,8 @@ export type PlaybookRule = {
   mandatory: boolean;
   deviation_rung: string;
   nda_type: string | null;
+  fallbacks: PlaybookFallback[];
+  walk_away_text: string;
 };
 
 export type Check = { kind: string; name: string; passed: boolean; detail: string; model?: string };
@@ -150,6 +206,9 @@ export type RequestDetail = RequestSummary & {
   ladder: Ladder | null;
   review: Review | null;
   timeline: TimelineEvent[];
+  details: string | null;
+  resolution_draft: string | null;
+  resolution_note: string | null;
 };
 
 export type RequesterStatus = {
@@ -163,6 +222,8 @@ export type RequesterStatus = {
   headline: string;
   detail: string;
   document_ready: boolean;
+  answer: string | null;
+  stages: string[] | null;
   expires_at: string | null;
   timeline: TimelineEvent[];
 };
@@ -372,6 +433,44 @@ export const api = {
 
   // ops metrics (SLA + deflection dashboard)
   opsSummary: () => fetch(`${BASE}/api/ops/summary`, { cache: "no-store", headers: H() }).then(j<OpsSummary>),
+
+  // request-type catalog + the advice engine
+  requestTypes: () => fetch(`${BASE}/api/request-types`, { cache: "no-store", headers: H() })
+    .then(j<{ types: RequestTypeInfo[] }>).then((r) => r.types),
+  createAdvice: (body: { type_key: string; question: string; urgency?: string }) =>
+    fetch(`${BASE}/api/requests/advice`, JSON_POST(body)).then(j<RequestDetail>),
+  resolveAdvice: (id: string, answer: string) =>
+    fetch(`${BASE}/api/requests/${id}/resolve`, JSON_POST({ answer })).then(j<RequestDetail>),
+
+  // queue operations
+  assignRequest: (id: string, user_id: string | null) =>
+    fetch(`${BASE}/api/requests/${id}/assign`, JSON_POST({ user_id })).then(j<RequestDetail>),
+  snoozeRequest: (id: string, hours: number | null) =>
+    fetch(`${BASE}/api/requests/${id}/snooze`, JSON_POST({ hours })).then(j<RequestDetail>),
+  bulkAction: (body: { ids: string[]; action: "assign" | "snooze" | "unsnooze"; user_id?: string; hours?: number }) =>
+    fetch(`${BASE}/api/requests/bulk`, JSON_POST(body)).then(j<{ ok: boolean; done: string[]; skipped: string[] }>),
+  assignableUsers: () => fetch(`${BASE}/api/users/assignable`, { cache: "no-store", headers: H() })
+    .then(j<{ users: AssignableUser[] }>).then((r) => r.users),
+
+  // routing rules (admin)
+  listRoutingRules: () => fetch(`${BASE}/api/admin/routing/rules`, { cache: "no-store", headers: H() })
+    .then(j<{ rules: RoutingRuleOut[] }>).then((r) => r.rules),
+  createRoutingRule: (body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/admin/routing/rules`, JSON_POST(body)).then(j<RoutingRuleOut>),
+  updateRoutingRule: (id: string, body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/admin/routing/rules/${id}`, { method: "PUT", headers: H({ "content-type": "application/json" }), body: JSON.stringify(body) }).then(j<RoutingRuleOut>),
+  deleteRoutingRule: (id: string) =>
+    fetch(`${BASE}/api/admin/routing/rules/${id}`, { method: "DELETE", headers: H() }).then(j<{ ok: boolean }>),
+  previewRoutingRule: (body: Record<string, unknown>) =>
+    fetch(`${BASE}/api/admin/routing/rules/preview`, JSON_POST(body)).then(j<RulePreview>),
+
+  // obligations (post-signature CLM)
+  contractObligations: (contractId: string) =>
+    fetch(`${BASE}/api/contracts/${contractId}/obligations`, { cache: "no-store", headers: H() })
+      .then(j<{ obligations: Obligation[] }>).then((r) => r.obligations),
+  resolveObligation: (obligationId: string, done: boolean) =>
+    fetch(`${BASE}/api/contracts/obligations/${obligationId}/resolve`, JSON_POST({ done }))
+      .then(j<{ ok: boolean; status: string }>),
 
   // contract registry (CLM — post-signature renewal tracking)
   contracts: () => fetch(`${BASE}/api/contracts`, { cache: "no-store", headers: H() }).then(j<ContractRegistry>),

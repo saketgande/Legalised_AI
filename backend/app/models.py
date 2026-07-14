@@ -88,6 +88,32 @@ class StepStatus(str, enum.Enum):
     SKIPPED = "SKIPPED"
 
 
+class RequestCategory(str, enum.Enum):
+    CONTRACT = "CONTRACT"  # full CLM loop: draft/redline -> approve -> sign -> file -> track
+    ADVICE = "ADVICE"      # triage -> assign -> governed answer -> resolved (no document lifecycle)
+
+
+class RequestPriority(str, enum.Enum):
+    LOW = "LOW"
+    NORMAL = "NORMAL"
+    HIGH = "HIGH"
+    URGENT = "URGENT"
+
+
+class ObligationKind(str, enum.Enum):
+    RENEWAL = "RENEWAL"                  # renew-or-lapse decision at expiry
+    SURVIVAL = "SURVIVAL"                # confidentiality survives until a date
+    RETURN_DESTRUCTION = "RETURN_DESTRUCTION"  # return/destroy on request
+    NOTICE = "NOTICE"
+    OTHER = "OTHER"
+
+
+class ObligationStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    DONE = "DONE"
+    WAIVED = "WAIVED"
+
+
 # ———————————————————————— shared entities ————————————————————————
 class Organization(Base):
     __tablename__ = "organization"
@@ -131,6 +157,54 @@ class Counterparty(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+# ————————————————————— request-type catalog + routing —————————————————————
+class RequestType(Base):
+    """The catalog of things the front door accepts. CONTRACT types run the full
+    CLM engine (today: NDA); ADVICE types run the triage->assign->governed-answer
+    engine. The requester never learns which engine ran."""
+    __tablename__ = "request_type"
+    __table_args__ = (UniqueConstraint("org_id", "key", name="uq_request_type_org_key"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
+    key: Mapped[str] = mapped_column(String, nullable=False)          # "nda", "legal_question"
+    label: Mapped[str] = mapped_column(String, nullable=False)        # "NDA / confidentiality"
+    description: Mapped[str] = mapped_column(Text, default="")
+    category: Mapped[RequestCategory] = mapped_column(Enum(RequestCategory), default=RequestCategory.ADVICE)
+    default_sla_hours: Mapped[int] = mapped_column(Integer, default=24)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RoutingRule(Base):
+    """Admin-editable WHEN conditions -> THEN actions rows, evaluated in order
+    after classification on every channel. Null condition = wildcard; all non-null
+    conditions must match (AND). Every fired rule writes an audit row and appends
+    a which-rule-fired line to the request's triage reasons."""
+    __tablename__ = "routing_rule"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    stop_on_match: Mapped[bool] = mapped_column(Boolean, default=False)  # don't evaluate later rules
+
+    # conditions (all AND; null = any)
+    match_type_key: Mapped[str | None] = mapped_column(String, nullable=True)      # request type key
+    match_direction: Mapped[str | None] = mapped_column(String, nullable=True)     # OUTBOUND | INBOUND
+    match_keyword: Mapped[str | None] = mapped_column(String, nullable=True)       # substring across cp/purpose/notes
+    match_jurisdiction: Mapped[str | None] = mapped_column(String, nullable=True)  # exact code
+
+    # actions (null = no-op)
+    set_assignee_user_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    set_priority: Mapped[str | None] = mapped_column(String, nullable=True)        # RequestPriority value
+    set_sla_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    escalate: Mapped[bool] = mapped_column(Boolean, default=False)                 # force ESCALATED lane
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 # ————————————————————————————— playbook —————————————————————————————
 class Playbook(Base):
     __tablename__ = "playbook"
@@ -164,6 +238,13 @@ class PlaybookRule(Base):
     mandatory: Mapped[bool] = mapped_column(Boolean, default=True)
     deviation_rung: Mapped[str] = mapped_column(String, default="none")  # gc | vp_legal | requesting_manager | none
     rationale: Mapped[str] = mapped_column(Text, default="")
+    # The Ivo-style position ladder. ``fallbacks`` is an ordered list of
+    # acceptable retreat positions, each its own approval price:
+    #   [{"label": "2x fees cap", "body": "...clause text...", "rung": "vp_legal"}]
+    # ``walk_away_text`` names the line we never cross; a counterparty clause that
+    # crosses it is flagged as a walk-away breach and always escalates to GC.
+    fallbacks: Mapped[list] = mapped_column(JSON, default=list)
+    walk_away_text: Mapped[str] = mapped_column(Text, default="")
     playbook: Mapped[Playbook] = relationship(back_populates="rules")
 
 
@@ -195,6 +276,20 @@ class Request(Base):
     playbook_id: Mapped[str | None] = mapped_column(ForeignKey("playbook.id"), nullable=True)
     channel: Mapped[str] = mapped_column(String, default="FORM")  # FORM | SLACK | EMAIL | CHAT
     triage_reasons: Mapped[list] = mapped_column(JSON, default=list)
+
+    # queue operations (routing rules + triage cockpit)
+    assigned_to_user_id: Mapped[str | None] = mapped_column(ForeignKey("app_user.id"), nullable=True)
+    priority: Mapped[RequestPriority] = mapped_column(Enum(RequestPriority), default=RequestPriority.NORMAL)
+    sla_target_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)  # rule/type override; null = lane default
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # ADVICE-engine resolution. The agent's draft answer is a PENDING proposal
+    # (resolution_draft); only human approval promotes it to resolution_note —
+    # the same governed gate the redline engine uses.
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolution_draft: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # free-text ask for ADVICE requests (the question / thing to review)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     document_id: Mapped[str | None] = mapped_column(ForeignKey("document.id"), nullable=True)
 
@@ -314,6 +409,27 @@ class ProposedChange(Base):
     decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     run: Mapped[ReviewRun] = relationship(back_populates="changes")
+
+
+# ————————————————————— obligations (post-signature CLM) —————————————————————
+class Obligation(Base):
+    """A commitment the executed contract creates. Extracted deterministically at
+    execution time from the contract's structured clauses + facts (dates/numbers
+    are exactly what LLMs get wrong, so extraction is rule-based; an LLM pass can
+    add prose obligations later as governed proposals). Completing or waiving an
+    obligation is audited."""
+    __tablename__ = "obligation"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    org_id: Mapped[str] = mapped_column(ForeignKey("organization.id"), nullable=False)
+    request_id: Mapped[str] = mapped_column(ForeignKey("request.id"), nullable=False)  # the executed contract
+    kind: Mapped[ObligationKind] = mapped_column(Enum(ObligationKind), default=ObligationKind.OTHER)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # null = on-demand
+    source: Mapped[str] = mapped_column(String, default="")  # clause rule_key or "contract-facts"
+    status: Mapped[ObligationStatus] = mapped_column(Enum(ObligationStatus), default=ObligationStatus.OPEN)
+    resolved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 # ——————————————————— append-only, hash-chained audit ———————————————————

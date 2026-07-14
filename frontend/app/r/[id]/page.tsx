@@ -23,13 +23,16 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
 
   if (err) return <div style={{ maxWidth: 720, margin: "0 auto" }}><div className="notice warn">{err}</div></div>;
   if (!s) return <div className="muted">Loading…</div>;
-  const done = s.stage_index >= 4;
+  const stages = s.stages ?? STAGES;           // ADVICE requests carry their own tracker
+  const advice = s.stages !== null && s.stages !== undefined;
+  const done = s.stage_index >= stages.length - 1;
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto" }}>
       <div className="page-head" style={{ marginBottom: 16 }}>
         <p className="kicker">Your request · <span className="mono">{s.ref}</span></p>
-        <h1>Your NDA with {s.counterparty_name}</h1>
+        <h1>{advice ? s.counterparty_name : `Your NDA with ${s.counterparty_name}`}</h1>
+        {advice && <p className="sub" style={{ marginTop: 4 }}>{s.purpose}</p>}
       </div>
 
       {/* status headline */}
@@ -44,11 +47,19 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
         </div>
       </div>
 
+      {/* answer card — the ADVICE engine's payoff */}
+      {advice && s.answer && (
+        <div className="card card-pad" style={{ marginTop: 18, borderColor: "var(--good-line)" }}>
+          <div className="kicker" style={{ marginBottom: 8 }}>Legal&rsquo;s answer</div>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{s.answer}</p>
+        </div>
+      )}
+
       {/* package tracker */}
       <div className="kicker" style={{ margin: "26px 4px 0" }}>Progress</div>
       <div className="card card-pad">
         <div className="pkg">
-          {STAGES.map((label, i) => {
+          {stages.map((label, i) => {
             const cls = i < s.stage_index ? "done" : i === s.stage_index ? "here" : "todo";
             return (
               <div key={label} className={`pkg-step ${cls}`}>

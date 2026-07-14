@@ -99,6 +99,21 @@ def chat(
                           "or upload their document — I'll redline it against the playbook.",
                 "created": None, "extracted": _extracted(parsed)}
 
+    if parsed.intent == "advice":
+        # a question for the legal team -> the ADVICE resolution engine
+        requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
+        r = intake.create_advice(
+            db, org=user.org_id, requester=requester,
+            actor=intake.Actor(user.id, ActorType.USER, user.name),
+            type_key="legal_question", question=payload.message, channel="CHAT",
+        )
+        return {
+            "reply": parsed.reply or "Got it — I've filed that as a question for the legal team.",
+            "created": {"id": r.id, "ref": r.ref, "lane": r.lane.value if r.lane else None,
+                        "state": r.state.value, "counterparty": "Legal question"},
+            "extracted": _extracted(parsed),
+        }
+
     if not parsed.counterparty:
         return {"reply": parsed.reply, "created": None, "extracted": _extracted(parsed)}
 

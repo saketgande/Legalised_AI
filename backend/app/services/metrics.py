@@ -44,6 +44,12 @@ def _target(lane: Lane | None) -> int:
     return TARGET_HOURS.get(lane.value, DEFAULT_TARGET) if lane else DEFAULT_TARGET
 
 
+def _target_for(r: Request) -> int:
+    """Per-request override (request-type default or routing-rule action) wins;
+    otherwise the lane default."""
+    return r.sla_target_hours if r.sla_target_hours else _target(r.lane)
+
+
 def ops_metrics(db: Session, org_id: str) -> dict:
     now = datetime.now(timezone.utc)
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -82,7 +88,7 @@ def ops_metrics(db: Session, org_id: str) -> dict:
         created = _aware(r.created_at)
         # fall back to updated_at only if the ledger has no approval event (legacy rows)
         resolution = resolved_at.get(r.id) or _aware(r.updated_at or r.created_at)
-        target = _target(r.lane)
+        target = _target_for(r)
         if r.lane == Lane.AUTO:
             auto += 1
 

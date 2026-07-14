@@ -33,6 +33,7 @@ const GROUPS: Group[] = [
     label: "Administration",
     items: [
       { href: "/admin/playbook", label: "Playbook", perm: "playbook:manage", Icon: IconBook },
+      { href: "/admin/routing", label: "Routing rules", perm: "intake:manage", Icon: IconShield },
       { href: "/admin", label: "Users & roles", perm: "admin:manage_users", Icon: IconUsers },
     ],
   },

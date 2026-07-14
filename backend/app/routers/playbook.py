@@ -56,6 +56,9 @@ class RuleIn(BaseModel):
     mandatory: bool = True
     deviation_rung: str = "none"
     nda_type: str | None = None  # applies_when.ndaType: MUTUAL | ONE_WAY | null(any)
+    # the position ladder: ordered acceptable retreats, each with its approval price
+    fallbacks: list[dict] = []   # [{label, body, rung}]
+    walk_away_text: str = ""     # the line we never cross
 
 
 def _change_org(db: Session, change: ProposedChange) -> str | None:
@@ -82,6 +85,7 @@ def _rule_out(r: PlaybookRule) -> dict:
         "ordinal": r.ordinal, "preferred_position": r.preferred_position, "preferred_body": r.preferred_body,
         "rationale": r.rationale, "mandatory": r.mandatory, "deviation_rung": r.deviation_rung,
         "nda_type": (r.applies_when or {}).get("ndaType"),
+        "fallbacks": r.fallbacks or [], "walk_away_text": r.walk_away_text or "",
     }
 
 
@@ -92,6 +96,13 @@ def _validate(payload: RuleIn) -> None:
         raise HTTPException(400, "nda_type must be MUTUAL, ONE_WAY, or null")
     if not payload.rule_key.strip() or not payload.heading.strip():
         raise HTTPException(400, "rule_key and heading are required")
+    if len(payload.fallbacks) > 5:
+        raise HTTPException(400, "at most 5 fallback positions")
+    for i, fb in enumerate(payload.fallbacks):
+        if not isinstance(fb, dict) or not str(fb.get("body", "")).strip():
+            raise HTTPException(400, f"fallback #{i + 1} needs a body")
+        if fb.get("rung", "none") not in _VALID_RUNGS:
+            raise HTTPException(400, f"fallback #{i + 1} rung must be one of {sorted(_VALID_RUNGS)}")
 
 
 def _bump_version(db: Session, pb: Playbook) -> None:
@@ -184,6 +195,7 @@ def create_rule(
         preferred_position=payload.preferred_position, preferred_body=payload.preferred_body,
         rationale=payload.rationale, mandatory=payload.mandatory, deviation_rung=payload.deviation_rung,
         applies_when={"ndaType": payload.nda_type} if payload.nda_type else {}, structured_params={},
+        fallbacks=payload.fallbacks, walk_away_text=payload.walk_away_text,
     )
     db.add(r)
     _bump_version(db, pb)
@@ -227,6 +239,8 @@ def update_rule(
     r.mandatory = payload.mandatory
     r.deviation_rung = payload.deviation_rung
     r.applies_when = {"ndaType": payload.nda_type} if payload.nda_type else {}
+    r.fallbacks = payload.fallbacks
+    r.walk_away_text = payload.walk_away_text
     _bump_version(db, pb)
     db.flush()
     record_audit(

@@ -35,10 +35,15 @@ from ..config import settings
 from ..permissions import Permission, can
 from ..schemas import (
     ApproveStepIn,
+    AssignIn,
+    BulkActionIn,
+    CreateAdviceIn,
     CreateRequestIn,
     RequestDetailOut,
     RequestSummaryOut,
     RequesterStatusOut,
+    ResolveAdviceIn,
+    SnoozeIn,
 )
 from ..security import assert_can_clear_rung, current_user, require
 from ..services import esign
@@ -151,16 +156,31 @@ def _open_steps(db: Session, request_id: str) -> int:
     return count
 
 
+def _type_info(db: Session, r: Request) -> tuple[str | None, str]:
+    """(catalog label, category) for the request's type. Legacy 'NDA' rows map to
+    the 'nda' catalog entry; unknown keys read as CONTRACT so old flows keep working."""
+    from ..services.request_types import get_type
+
+    rt = get_type(db, r.org_id, (r.type or "nda").lower())
+    if rt is None:
+        return None, "CONTRACT"
+    return rt.label, rt.category.value
+
+
 def _summary(db: Session, r: Request) -> dict:
     from ..models import Playbook
 
     cp = db.get(Counterparty, r.counterparty_id)
     person = db.get(Person, r.requester_id)
     pb = db.get(Playbook, r.playbook_id) if r.playbook_id else None
+    assignee = db.get(User, r.assigned_to_user_id) if r.assigned_to_user_id else None
+    type_label, category = _type_info(db, r)
     return {
         "id": r.id,
         "ref": r.ref,
         "type": r.type,
+        "type_label": type_label,
+        "category": category,
         "direction": r.direction.value,
         "nda_type": r.nda_type.value,
         "state": r.state.value,
@@ -172,6 +192,11 @@ def _summary(db: Session, r: Request) -> dict:
         "term_months": r.term_months,
         "created_at": r.created_at,
         "open_steps": _open_steps(db, r.id),
+        "priority": r.priority.value if r.priority else "NORMAL",
+        "assigned_to_user_id": r.assigned_to_user_id,
+        "assigned_to_name": assignee.name if assignee else None,
+        "snoozed_until": r.snoozed_until,
+        "sla_target_hours": r.sla_target_hours,
         "playbook_id": r.playbook_id,
         "playbook_name": pb.name if pb else None,
         "playbook_version": pb.version if pb else None,
@@ -279,6 +304,9 @@ def _detail(db: Session, r: Request) -> dict:
             "ladder": _ladder_out(db, r.id),
             "review": _review_out(db, r),
             "timeline": _timeline(db, r.id),
+            "details": r.details,
+            "resolution_draft": r.resolution_draft,
+            "resolution_note": r.resolution_note,
         }
     )
     return base
@@ -308,6 +336,164 @@ def create_request(
     except PlaybookResolutionError as e:
         raise HTTPException(400, str(e))
     return _detail(db, r)
+
+
+@router.post("/requests/advice", response_model=RequestDetailOut)
+def create_advice_request(
+    payload: CreateAdviceIn,
+    user: User = Depends(require(Permission.REQUEST_CREATE)),
+    db: Session = Depends(get_db),
+):
+    """File an ADVICE-category request (legal question, marketing review, …).
+    Same spine, lighter engine: triage -> assign -> governed answer."""
+    from ..services import intake
+
+    if not payload.question.strip():
+        raise HTTPException(400, "the question / details are required")
+    requester = intake.get_or_create_person(db, user.org_id, user.name, user.email)
+    try:
+        r = intake.create_advice(
+            db, org=user.org_id, requester=requester,
+            actor=intake.Actor(user.id, ActorType.USER, user.name),
+            type_key=payload.type_key, question=payload.question,
+            channel=payload.channel, urgency=payload.urgency,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _detail(db, r)
+
+
+@router.post("/requests/{request_id}/assign", response_model=RequestDetailOut)
+def assign_request(
+    request_id: str, payload: AssignIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
+    r = db.get(Request, request_id)
+    if r is None or r.org_id != user.org_id:
+        raise HTTPException(404, "request not found")
+    assignee = None
+    if payload.user_id:
+        assignee = db.get(User, payload.user_id)
+        if assignee is None or assignee.org_id != user.org_id or assignee.suspended:
+            raise HTTPException(400, "assignee must be an active user in your organisation")
+    before = r.assigned_to_user_id
+    r.assigned_to_user_id = assignee.id if assignee else None
+    record_audit(
+        db, org_id=r.org_id, action="request.assigned" if assignee else "request.unassigned",
+        resource_type="Request", resource_id=r.id,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
+        metadata={"from": before, "to": r.assigned_to_user_id,
+                  "assignee": assignee.name if assignee else None},
+    )
+    db.commit()
+    db.refresh(r)
+    return _detail(db, r)
+
+
+@router.post("/requests/{request_id}/snooze", response_model=RequestDetailOut)
+def snooze_request(
+    request_id: str, payload: SnoozeIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
+    from datetime import timedelta
+
+    r = db.get(Request, request_id)
+    if r is None or r.org_id != user.org_id:
+        raise HTTPException(404, "request not found")
+    if payload.hours is not None and not (1 <= payload.hours <= 24 * 30):
+        raise HTTPException(400, "snooze must be between 1 hour and 30 days")
+    if payload.hours is None:
+        r.snoozed_until = None
+        action = "request.unsnoozed"
+    else:
+        r.snoozed_until = datetime.now(timezone.utc) + timedelta(hours=payload.hours)
+        action = "request.snoozed"
+    record_audit(
+        db, org_id=r.org_id, action=action, resource_type="Request", resource_id=r.id,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
+        metadata={"until": r.snoozed_until.isoformat() if r.snoozed_until else None},
+    )
+    db.commit()
+    db.refresh(r)
+    return _detail(db, r)
+
+
+@router.post("/requests/{request_id}/resolve", response_model=RequestDetailOut)
+def resolve_advice(
+    request_id: str, payload: ResolveAdviceIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
+    """Approve (or approve-with-edit) the answer to an ADVICE request. Writes
+    ``request.approved`` — the same ledger anchor the SLA clock stops on."""
+    r = db.get(Request, request_id)
+    if r is None or r.org_id != user.org_id:
+        raise HTTPException(404, "request not found")
+    _, category = _type_info(db, r)
+    if category != "ADVICE":
+        raise HTTPException(409, "only advice requests are resolved with an answer")
+    if r.state in (RequestState.APPROVED, RequestState.CANCELLED):
+        raise HTTPException(409, f"request is already {r.state.value.lower()}")
+    answer = payload.answer.strip()
+    if not answer:
+        raise HTTPException(400, "an answer is required")
+    edited = bool(r.resolution_draft) and answer != (r.resolution_draft or "").strip()
+    r.resolution_note = answer
+    r.state = RequestState.APPROVED
+    record_audit(
+        db, org_id=r.org_id, action="request.approved", resource_type="Request", resource_id=r.id,
+        actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name,
+        metadata={"engine": "advice",
+                  "draft_used": "edited" if edited else ("as_proposed" if r.resolution_draft else "written_by_human")},
+    )
+    db.commit()
+    db.refresh(r)
+    return _detail(db, r)
+
+
+@router.post("/requests/bulk")
+def bulk_action(
+    payload: BulkActionIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)), db: Session = Depends(get_db),
+):
+    """Bulk queue operations: assign / snooze / unsnooze. Audited per request;
+    unknown or foreign ids are skipped and reported, never a partial mystery."""
+    from datetime import timedelta
+
+    if payload.action not in ("assign", "snooze", "unsnooze"):
+        raise HTTPException(400, "action must be assign, snooze, or unsnooze")
+    if len(payload.ids) == 0 or len(payload.ids) > 100:
+        raise HTTPException(400, "between 1 and 100 request ids")
+    assignee = None
+    if payload.action == "assign" and payload.user_id:
+        assignee = db.get(User, payload.user_id)
+        if assignee is None or assignee.org_id != user.org_id or assignee.suspended:
+            raise HTTPException(400, "assignee must be an active user in your organisation")
+    if payload.action == "snooze" and (payload.hours is None or not (1 <= payload.hours <= 24 * 30)):
+        raise HTTPException(400, "snooze hours must be between 1 and 720")
+
+    done, skipped = [], []
+    for rid in payload.ids:
+        r = db.get(Request, rid)
+        if r is None or r.org_id != user.org_id:
+            skipped.append(rid)
+            continue
+        if payload.action == "assign":
+            r.assigned_to_user_id = assignee.id if assignee else None
+            action = "request.assigned" if assignee else "request.unassigned"
+            meta = {"assignee": assignee.name if assignee else None, "bulk": True}
+        elif payload.action == "snooze":
+            r.snoozed_until = datetime.now(timezone.utc) + timedelta(hours=payload.hours)
+            action, meta = "request.snoozed", {"until": r.snoozed_until.isoformat(), "bulk": True}
+        else:
+            r.snoozed_until = None
+            action, meta = "request.unsnoozed", {"bulk": True}
+        record_audit(
+            db, org_id=r.org_id, action=action, resource_type="Request", resource_id=r.id,
+            actor_id=user.id, actor_type=ActorType.USER, actor_label=user.name, metadata=meta,
+        )
+        done.append(rid)
+    db.commit()
+    return {"ok": True, "done": done, "skipped": skipped}
 
 
 @router.get("/requests", response_model=list[RequestSummaryOut])
@@ -347,6 +533,36 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
         raise HTTPException(404, "request not found")
     _authorize_read(db, user, r)
     cp = db.get(Counterparty, r.counterparty_id)
+    type_label, category = _type_info(db, r)
+
+    # ADVICE engine: a 3-stage tracker and the approved answer as the payoff.
+    # The requester never learns which engine ran — same page, same shape.
+    if category == "ADVICE":
+        stages = ["Requested", "With the legal team", "Answered"]
+        if r.state == RequestState.APPROVED:
+            stage, idx = "Answered", 2
+            headline = "Answered — here's what legal says."
+            detail = r.resolution_note or ""
+        elif r.state == RequestState.CANCELLED:
+            stage, idx, headline, detail = "Requested", 0, "Cancelled.", "This request was withdrawn."
+        else:
+            stage, idx = "With the legal team", 1
+            headline = "The legal team is on it."
+            detail = f"Filed as: {type_label or 'legal request'}. You'll see the answer here — no need to chase."
+        return {
+            "ref": r.ref,
+            "counterparty_name": type_label or "Legal request",
+            "nda_type": r.nda_type.value,
+            "purpose": (r.details or r.purpose)[:140],
+            "stage": stage, "stage_index": idx, "stages": stages,
+            "needs_you": False,
+            "headline": headline, "detail": detail,
+            "document_ready": False,
+            "answer": r.resolution_note,
+            "expires_at": None,
+            "timeline": _timeline(db, r.id),
+        }
+
     label, idx = _STAGE.get(r.state, ("Requested", 0))
 
     if r.state in (RequestState.IN_REVIEW,):
@@ -493,6 +709,9 @@ def simulate_signature(
         actor_type=ActorType.SYSTEM, actor_label="E-Sign (stub)",
         metadata={"countersigned_by": cp.name if cp else "counterparty"},
     )
+    from ..services.obligations import extract_obligations_for_contract
+
+    extract_obligations_for_contract(db, r)  # what the signed contract commits us to
     r.state = RequestState.FILED
     record_audit(
         db, org_id=r.org_id, action="request.filed", resource_type="Request", resource_id=r.id,

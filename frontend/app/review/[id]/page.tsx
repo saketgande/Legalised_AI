@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api, RUNG_RANK, type ProposedChange, type RequestDetail } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Timeline } from "../../components/Timeline";
 
 /* ---------- markdown renderers ---------- */
@@ -126,6 +127,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showCounter, setShowCounter] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);   // type-to-confirm before the irreversible send
+  const [answer, setAnswer] = useState<string | null>(null); // advice answer editor (null until seeded)
   const rank = user?.rank ?? 0;
   const canClear = (rung: string) => (user?.permissions.includes("review:decide") ?? false) && rank >= (RUNG_RANK[rung] ?? 0);
 
@@ -151,6 +154,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const outForSig = r.state === "OUT_FOR_SIGNATURE";
   const filed = r.state === "EXECUTED" || r.state === "FILED";
   const inbound = !!r.review;
+  const advice = r.category === "ADVICE";
 
   return (
     <div className="container">
@@ -158,11 +162,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "10px 0 4px" }}>
         <span className="mono muted" style={{ fontSize: 12.5 }}>{r.ref}</span>
-        <h1 className="h-serif" style={{ fontSize: 22, margin: 0 }}>{r.counterparty_name}</h1>
-        <span className="muted" style={{ fontSize: 12 }}>
-          {r.nda_type === "MUTUAL" ? "Mutual NDA" : "One-way NDA"} · {r.direction === "INBOUND" ? "their paper — we review" : "our paper — we send"}
-        </span>
-        {inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
+        <h1 className="h-serif" style={{ fontSize: 22, margin: 0 }}>{advice ? (r.type_label || "Legal request") : r.counterparty_name}</h1>
+        {!advice && (
+          <span className="muted" style={{ fontSize: 12 }}>
+            {r.nda_type === "MUTUAL" ? "Mutual NDA" : "One-way NDA"} · {r.direction === "INBOUND" ? "their paper — we review" : "our paper — we send"}
+          </span>
+        )}
+        {advice ? <LanePill lane={r.lane} /> : inbound ? <span className="pill escalated">INBOUND</span> : <LanePill lane={r.lane} />}
         <span className="pill state">{r.state.replace(/_/g, " ").toLowerCase()}</span>
         {r.playbook_name && (
           <span className="pill accent" title="The playbook this request was reviewed against">
@@ -171,7 +177,67 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         )}
       </div>
 
-      {inbound ? (
+      {advice ? (
+        /* ===================== ADVICE COCKPIT (governed answer) ===================== */
+        (() => {
+          const resolved = r.state === "APPROVED";
+          const draft = answer ?? r.resolution_draft ?? "";
+          const canDecide = user?.permissions.includes("review:decide") ?? false;
+          return (
+            <div style={{ maxWidth: 760, marginTop: 18 }}>
+              <div className="card card-pad" style={{ marginBottom: 16 }}>
+                <div className="kicker" style={{ marginBottom: 6 }}>The ask · {r.type_label}</div>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{r.details}</p>
+                <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
+                  from {r.requester_name} · priority {r.priority.toLowerCase()}
+                  {r.assigned_to_name && <> · assigned to {r.assigned_to_name}</>}
+                  {r.sla_target_hours && <> · SLA {r.sla_target_hours}h</>}
+                </div>
+              </div>
+
+              {resolved ? (
+                <div className="card card-pad" style={{ borderColor: "var(--good-line)" }}>
+                  <div className="kicker" style={{ marginBottom: 6 }}>Approved answer — visible to the requester</div>
+                  <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{r.resolution_note}</p>
+                </div>
+              ) : (
+                <div className="card card-pad">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                    <div className="kicker" style={{ margin: 0 }}>Answer</div>
+                    {r.resolution_draft && (
+                      <span className="pill accent" title="Drafted by the AI as a proposal — nothing reaches the requester until you approve.">
+                        ✦ AI-drafted proposal — review before it ships
+                      </span>
+                    )}
+                  </div>
+                  <textarea rows={8} value={draft} onChange={(e) => setAnswer(e.target.value)}
+                    placeholder="Write the answer the requester will see…" style={{ width: "100%" }} />
+                  <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+                    <button className="btn primary" disabled={busy || !draft.trim() || !canDecide}
+                      title={canDecide ? "" : "Needs the review:decide permission"}
+                      onClick={() => act(() => api.resolveAdvice(params.id, draft))}>
+                      {busy ? "Sending…" : r.resolution_draft && draft === r.resolution_draft
+                        ? "Approve & send answer" : "Send answer"}
+                    </button>
+                    {r.resolution_draft && draft !== r.resolution_draft && (
+                      <button className="btn ghost sm" onClick={() => setAnswer(r.resolution_draft)}>
+                        Reset to AI draft
+                      </button>
+                    )}
+                    <span className="faint" style={{ fontSize: 12 }}>
+                      The requester sees exactly this text on their tracking page. Approval is chain-audited.
+                    </span>
+                  </div>
+                  {err && <div className="notice warn" style={{ marginTop: 10 }}>{err}</div>}
+                </div>
+              )}
+
+              <div className="kicker" style={{ margin: "22px 4px 8px" }}>Timeline</div>
+              <div className="card card-pad"><Timeline events={r.timeline} /></div>
+            </div>
+          );
+        })()
+      ) : inbound ? (
         /* ===================== DOCUMENT DESK (inbound review) ===================== */
         (() => {
           const clauses = r.document?.clauses ?? [];
@@ -196,7 +262,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               {/* action strip */}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
                 {canSend && (
-                  <button className="btn primary" disabled={busy} onClick={() => act(() => api.send(params.id))}>
+                  <button className="btn primary" disabled={busy} onClick={() => setConfirmSend(true)}>
                     Send counter-proposal →
                   </button>
                 )}
@@ -343,7 +409,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             )}
             <div className="card" style={{ padding: 16 }}>
               <div className="kicker" style={{ marginBottom: 10 }}>Actions</div>
-              {canSend && <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={() => act(() => api.send(params.id))}>Approve &amp; send for signature</button>}
+              {canSend && <button className="btn primary" style={{ width: "100%" }} disabled={busy} onClick={() => setConfirmSend(true)}>Approve &amp; send for signature</button>}
               {outForSig && (<>
                 <div className="notice info" style={{ marginBottom: 10 }}>
                   Sent for signature{r.esign_provider ? ` via ${r.esign_provider}` : ""}. Awaiting the counterparty.
@@ -364,6 +430,21 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           </div>
         </div>
       )}
+
+      {/* the irreversible step: the document leaves the building. Type-to-confirm. */}
+      <ConfirmDialog
+        open={confirmSend}
+        title={inbound ? "Send the counter-proposal?" : "Send for signature?"}
+        body={<>This sends the {inbound ? "redlined counter-proposal" : "approved NDA"} to{" "}
+          <b>{r.counterparty_name}</b> for signature — an external, hard-to-undo step.
+          Every approval behind it is already on the audit chain.</>}
+        phrase={r.counterparty_name}
+        actionLabel="Send it"
+        danger={false}
+        busy={busy}
+        onConfirm={() => { setConfirmSend(false); act(() => api.send(params.id)); }}
+        onClose={() => setConfirmSend(false)}
+      />
     </div>
   );
 }

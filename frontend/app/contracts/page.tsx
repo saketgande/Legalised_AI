@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import { api, type ContractRegistry, type ContractRow } from "../../lib/api";
+import { api, type ContractRegistry, type ContractRow, type Obligation } from "../../lib/api";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -49,6 +49,25 @@ export default function ContractRegistryPage() {
   const [renewErr, setRenewErr] = useState<string | null>(null); // non-fatal renew error
   const [filter, setFilter] = useState<Filter>("all");
   const [renewing, setRenewing] = useState<string | null>(null);
+  const [openRow, setOpenRow] = useState<string | null>(null);           // expanded contract
+  const [obls, setObls] = useState<Record<string, Obligation[]>>({});    // per-contract obligations
+
+  async function toggleRow(id: string) {
+    if (openRow === id) { setOpenRow(null); return; }
+    setOpenRow(id);
+    if (!obls[id]) {
+      try { setObls((m) => ({ ...m, [id]: [] })); const o = await api.contractObligations(id); setObls((m) => ({ ...m, [id]: o })); }
+      catch { /* leave empty */ }
+    }
+  }
+
+  async function resolveObl(cid: string, oid: string, done: boolean) {
+    try {
+      await api.resolveObligation(oid, done);
+      const o = await api.contractObligations(cid);
+      setObls((m) => ({ ...m, [cid]: o }));
+    } catch {}
+  }
 
   const load = () => api.contracts().then(setD).catch((e) => setErr(String(e)));
   useEffect(() => { load(); }, []);
@@ -168,25 +187,53 @@ export default function ContractRegistryPage() {
             <tbody>
               {shown.map((r) => {
                 const act = r.status === "expired" || r.status === "expiring";
+                const open = openRow === r.id;
+                const rowObls = obls[r.id] || [];
                 return (
-                  <tr key={r.id} className={r.status === "expired" ? "sev" : ""}>
-                    <td className="ref">{r.ref}</td>
-                    <td className="cp">{r.counterparty}</td>
-                    <td className="muted">{r.nda_type === "MUTUAL" ? "Mutual" : "One-way"}</td>
-                    <td className="muted tnum">{fmtDate(r.executed_at)}</td>
-                    <td><LifeBar row={r} /></td>
-                    <td><span className={`pill ${STATUS_PILL[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
-                    <td style={{ textAlign: "right" }}>
-                      {r.status === "renewed" ? (
-                        <span className="faint" style={{ fontSize: 12 }}>renewed ✓</span>
-                      ) : (
-                        <button className={`btn sm ${act ? "primary" : "ghost"}`} disabled={renewing === r.id}
-                          onClick={() => renew(r)}>
-                          {renewing === r.id ? "Renewing…" : "Renew →"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
+                  <>
+                    <tr key={r.id} className={r.status === "expired" ? "sev" : ""} style={{ cursor: "pointer" }}
+                      onClick={() => toggleRow(r.id)}>
+                      <td className="ref">{open ? "▾ " : "▸ "}{r.ref}</td>
+                      <td className="cp">{r.counterparty}</td>
+                      <td className="muted">{r.nda_type === "MUTUAL" ? "Mutual" : "One-way"}</td>
+                      <td className="muted tnum">{fmtDate(r.executed_at)}</td>
+                      <td><LifeBar row={r} /></td>
+                      <td><span className={`pill ${STATUS_PILL[r.status]}`}>{STATUS_LABEL[r.status]}</span></td>
+                      <td style={{ textAlign: "right" }} onClick={(e) => e.stopPropagation()}>
+                        {r.status === "renewed" ? (
+                          <span className="faint" style={{ fontSize: 12 }}>renewed ✓</span>
+                        ) : (
+                          <button className={`btn sm ${act ? "primary" : "ghost"}`} disabled={renewing === r.id}
+                            onClick={() => renew(r)}>
+                            {renewing === r.id ? "Renewing…" : "Renew →"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr key={`${r.id}-obl`}>
+                        <td colSpan={7} style={{ background: "var(--surface-2)", padding: "10px 22px 14px" }}>
+                          <div className="kicker" style={{ marginBottom: 4 }}>What this contract commits us to</div>
+                          {rowObls.length === 0 && <div className="faint" style={{ fontSize: 12.5, padding: "6px 0" }}>Loading obligations…</div>}
+                          {rowObls.map((o) => (
+                            <div key={o.id} className="obl-row">
+                              <span className="obl-kind">{o.kind.replace(/_/g, " ")}</span>
+                              <span style={{ flex: 1 }}>{o.description}</span>
+                              <span className={`obl-due ${o.overdue ? "over" : ""}`}>
+                                {o.due_at ? new Date(o.due_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "on demand"}
+                                {o.overdue && " ⚠"}
+                              </span>
+                              {o.status === "OPEN" ? (
+                                <button className="btn sm ghost" onClick={() => resolveObl(r.id, o.id, true)}>Mark done</button>
+                              ) : (
+                                <span className="obl-done" style={{ fontSize: 12 }}>✓ {o.status.toLowerCase()}{o.resolved_by ? ` · ${o.resolved_by}` : ""}</span>
+                              )}
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 );
               })}
               {shown.length === 0 && (

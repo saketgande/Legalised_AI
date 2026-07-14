@@ -75,6 +75,81 @@ def get_or_create_counterparty(db: Session, org: str, name: str) -> Counterparty
     return cp
 
 
+# ————————————————————————— advice (the second resolution engine) —————————————————————————
+def create_advice(
+    db: Session, *, org: str, requester: Person, actor: Actor,
+    type_key: str, question: str, channel: str = "FORM", urgency: str = "NORMAL",
+) -> Request:
+    """The lighter engine: triage -> assign -> governed answer. The requester
+    never learns which engine ran — same spine, same tracker, same audit chain."""
+    from ..models import RequestPriority
+    from .request_types import get_type
+    from .routing import apply_routing_rules
+
+    rtype = get_type(db, org, type_key)
+    if rtype is None or not rtype.active:
+        raise ValueError(f"unknown request type '{type_key}'")
+
+    # advice requests attach to an internal pseudo-counterparty so the spine's
+    # FK holds; the UI shows the type label instead
+    counterparty = get_or_create_counterparty(db, org, "— internal —")
+    prio = urgency if urgency in {p.value for p in RequestPriority} else "NORMAL"
+    q = question.strip()
+    # purpose doubles as the queue-row subject for advice requests: a readable snippet
+    subject = " ".join(q.split())[:90] + ("…" if len(q) > 90 else "")
+    r = Request(
+        ref=next_ref(db), org_id=org, type=rtype.key, direction=Direction.OUTBOUND,
+        state=RequestState.NEW, requester_id=requester.id, counterparty_id=counterparty.id,
+        purpose=subject or rtype.key, jurisdiction="US", term_months=0, channel=channel,
+        details=q[:8000], priority=RequestPriority(prio),
+        sla_target_hours=rtype.default_sla_hours,
+    )
+    db.add(r)
+    db.flush()
+    record_audit(
+        db, org_id=org, action="request.created", resource_type="Request", resource_id=r.id,
+        actor_id=actor.id, actor_type=actor.type, actor_label=actor.label,
+        metadata={"type": rtype.key, "channel": channel},
+    )
+    r.state = RequestState.CLASSIFIED
+    record_audit(
+        db, org_id=org, action="request.classified", resource_type="Request", resource_id=r.id,
+        actor_type=ActorType.AGENT, actor_label="Intake Assistant",
+        metadata={"type": rtype.key, "category": rtype.category.value, "channel": channel},
+    )
+    # advice always gets a human — ASSISTED unless a routing rule escalates
+    r.lane = Lane.ASSISTED
+    r.triage_reasons = [f"{rtype.label} — routed to the legal queue (SLA {rtype.default_sla_hours}h)."]
+    r.state = RequestState.ROUTED
+    record_audit(
+        db, org_id=org, action="request.routed", resource_type="Request", resource_id=r.id,
+        actor_type=ActorType.AGENT, actor_label="Intake Assistant",
+        metadata={"lane": r.lane.value, "sla_hours": rtype.default_sla_hours},
+    )
+    apply_routing_rules(db, r)
+
+    # governed AI draft: a PENDING proposal for the lawyer, never requester-visible
+    from .ai import get_ai_client
+
+    draft = get_ai_client().draft_advice_answer(r.details or "", rtype.label)
+    if draft:
+        r.resolution_draft = draft
+        record_audit(
+            db, org_id=org, action="advice.draft_proposed", resource_type="Request",
+            resource_id=r.id, actor_type=ActorType.AGENT, actor_label="Advice Assistant",
+            metadata={"chars": len(draft), "pending_approval": True},
+        )
+    r.state = RequestState.IN_REVIEW
+    record_audit(
+        db, org_id=org, action="review.requested", resource_type="Request", resource_id=r.id,
+        actor_type=ActorType.SYSTEM, actor_label="System",
+        metadata={"engine": "advice"},
+    )
+    db.commit()
+    db.refresh(r)
+    return r
+
+
 # ————————————————————————— outbound —————————————————————————
 def create_outbound(
     db: Session, *, org: str, requester: Person, actor: Actor, counterparty_name: str,
@@ -117,6 +192,10 @@ def create_outbound(
         actor_type=ActorType.AGENT, actor_label="Intake Assistant",
         metadata={"lane": result.lane.value, "reasons": result.reasons},
     )
+    from .routing import apply_routing_rules
+
+    apply_routing_rules(db, r)  # admin rules run after triage; may escalate/assign
+    result.lane = r.lane        # a rule may have forced ESCALATED
     generate_outbound_nda(db, r)
     r.state = RequestState.DRAFTED
     doc = db.get(Document, r.document_id)
@@ -192,6 +271,9 @@ def create_inbound(
     doc.current_version_id = version.id
     r.document_id = doc.id
     db.flush()
+    from .routing import apply_routing_rules
+
+    apply_routing_rules(db, r)  # inbound reviews route through admin rules too
     run = run_inbound_review(db, r)
     r.state = RequestState.IN_REVIEW
     record_audit(

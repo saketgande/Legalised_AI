@@ -33,13 +33,23 @@ class SemanticVerdict:
 
 @dataclass
 class IntakeParse:
-    intent: str                   # "outbound" | "inbound" | "other"
+    intent: str                   # "outbound" | "inbound" | "advice" | "other"
     counterparty: str | None
     nda_type: str                 # MUTUAL | ONE_WAY
     purpose: str
     term_months: int
     jurisdiction: str
     reply: str                    # natural-language reply for the chatbot
+    confidence: float
+    model: str
+
+
+@dataclass
+class LadderVerdict:
+    """Where a counterparty clause sits on the rule's position ladder."""
+    position: str                 # "preferred" | "fallback" | "deviation" | "walk_away"
+    fallback_index: int | None    # which fallback matched (when position == "fallback")
+    note: str
     confidence: float
     model: str
 
@@ -57,6 +67,13 @@ _JURIS_CODES = {
 }
 
 
+_ADVICE_MARKERS = (
+    "can i", "can we", "is it legal", "is it ok", "is it okay", "do we need",
+    "what happens if", "am i allowed", "are we allowed", "question about",
+    "advice", "how do i", "how do we", "what's the rule", "what is the rule",
+)
+
+
 def _guess_intake(text: str) -> IntakeParse:
     import re
 
@@ -64,6 +81,11 @@ def _guess_intake(text: str) -> IntakeParse:
     intent = "outbound"
     if any(w in t for w in ("review their", "they sent", "counterparty sent", "their paper", "sent us", "sent over", "attached")):
         intent = "inbound"
+    # a question with no NDA/contract ask reads as an advice request
+    elif "nda" not in t and "non-disclosure" not in t and "agreement" not in t and (
+        t.rstrip().endswith("?") or any(m in t for m in _ADVICE_MARKERS)
+    ):
+        intent = "advice"
 
     counterparty = None
     m = re.search(r"\bwith\s+([A-Z][\w.&'-]*(?:\s+[A-Z][\w.&'-]*){0,3})", text)
@@ -80,7 +102,10 @@ def _guess_intake(text: str) -> IntakeParse:
 
     jurisdiction = next((code for name, code in _JURIS_CODES.items() if name in t), "US")
 
-    if counterparty:
+    if intent == "advice":
+        reply = ("Got it — I've filed that as a question for the legal team. "
+                 "You'll get an answer on your request page.")
+    elif counterparty:
         reply = (f"Got it — a {'one-way' if nda_type == 'ONE_WAY' else 'mutual'} NDA with "
                  f"{counterparty} for {purpose.replace('_', ' ')} ({term} months). Filing it now.")
     else:
@@ -112,6 +137,41 @@ class HeuristicAIClient:
                 model=self.model,
             )
         return None  # abstain — no model to judge prose
+
+    def place_on_ladder(self, clause_text: str, rule, ctx: dict) -> "LadderVerdict | None":
+        """Deterministic fallback placement for numeric clause types: if a
+        fallback body carries a parseable duration, compare it to the
+        counterparty's number. Prose fallbacks and walk-away judgement need a
+        model — abstain (the finding stays a plain DEVIATION)."""
+        from .redline import extract_months  # local import to avoid a cycle
+
+        fallbacks = rule.fallbacks or []
+        if not fallbacks or rule.clause_type not in ("term", "limitation_of_liability"):
+            return None
+        theirs = extract_months(clause_text)
+        if theirs is None:
+            return None
+        for i, fb in enumerate(fallbacks):
+            floor = extract_months(str(fb.get("body", "")))
+            if floor is None:
+                continue
+            # term: their duration acceptable if <= fallback ceiling;
+            # liability: their cap acceptable if >= fallback floor
+            ok = theirs <= floor if rule.clause_type == "term" else theirs >= floor
+            if ok:
+                return LadderVerdict(
+                    position="fallback", fallback_index=i,
+                    note=f"{theirs}mo sits within fallback '{fb.get('label', f'#{i + 1}')}' ({floor}mo)",
+                    confidence=0.9, model=self.model,
+                )
+        return LadderVerdict(
+            position="deviation", fallback_index=None,
+            note=f"{theirs}mo is outside every fallback position",
+            confidence=0.85, model=self.model,
+        )
+
+    def draft_advice_answer(self, question: str, type_label: str) -> str | None:
+        return None  # abstain — an unsourced canned answer is worse than none
 
 
 _SYSTEM = (
@@ -160,12 +220,14 @@ class ClaudeAIClient:
         )
         user = (
             f"Message:\n{text}\n\n"
-            "Return JSON: {\"intent\": \"outbound\"|\"inbound\"|\"other\", "
+            "Return JSON: {\"intent\": \"outbound\"|\"inbound\"|\"advice\"|\"other\", "
             "\"counterparty\": \"<company name or null>\", \"nda_type\": \"MUTUAL\"|\"ONE_WAY\", "
             "\"purpose\": \"sales_evaluation\"|\"vendor_evaluation\"|\"hiring\"|\"partnership_exploration\"|\"litigation_support\", "
             "\"term_months\": <int>, \"jurisdiction\": \"US\"|\"US-CA\"|\"US-NY\"|\"US-DE\"|\"UK\"|\"EU-DE\", "
             "\"reply\": \"<one friendly sentence back to the requester>\", \"confidence\": 0.0-1.0}. "
-            "intent is 'inbound' if they want us to review a contract the other side sent, else 'outbound'."
+            "intent is 'inbound' if they want us to review a contract the other side sent; "
+            "'advice' if they are asking the legal team a question (no contract to draft or review); "
+            "else 'outbound'."
         )
         data = self._call(system, user)
         if not data or "intent" not in data:
@@ -184,6 +246,65 @@ class ClaudeAIClient:
             )
         except (TypeError, ValueError):
             return self._fallback.parse_intake(text)
+
+    def place_on_ladder(self, clause_text: str, rule, ctx: dict) -> LadderVerdict | None:
+        """Ask the model where the counterparty clause sits on the position
+        ladder: preferred / a named fallback / plain deviation / across the
+        walk-away line. Falls back to the deterministic heuristic on failure."""
+        fallbacks = rule.fallbacks or []
+        if not fallbacks and not (rule.walk_away_text or "").strip():
+            return None
+        fb_lines = "\n".join(
+            f"  {i + 1}. {fb.get('label', f'fallback {i + 1}')}: {fb.get('body', '')}"
+            for i, fb in enumerate(fallbacks)
+        ) or "  (none)"
+        user = (
+            f"Our position ladder for the '{rule.heading}' clause:\n"
+            f"PREFERRED: {rule.preferred_body}\n"
+            f"ACCEPTABLE FALLBACKS (in order of preference):\n{fb_lines}\n"
+            f"WALK-AWAY LINE (never acceptable): {rule.walk_away_text or '(none stated)'}\n\n"
+            f"The counterparty's clause:\n{clause_text}\n\n"
+            "Where does their clause sit? Return JSON: "
+            '{"position": "preferred"|"fallback"|"deviation"|"walk_away", '
+            '"fallback_index": <0-based int or null>, "note": "<=20 word reason", '
+            '"confidence": 0.0-1.0}. Use "walk_away" ONLY if their clause clearly '
+            "crosses the walk-away line."
+        )
+        data = self._call(_SYSTEM, user)
+        if not data or data.get("position") not in ("preferred", "fallback", "deviation", "walk_away"):
+            return self._fallback.place_on_ladder(clause_text, rule, ctx)
+        idx = data.get("fallback_index")
+        try:
+            idx = int(idx) if idx is not None else None
+            if idx is not None and not (0 <= idx < len(fallbacks)):
+                idx = None
+        except (TypeError, ValueError):
+            idx = None
+        return LadderVerdict(
+            position=str(data["position"]),
+            fallback_index=idx if data["position"] == "fallback" else None,
+            note=str(data.get("note", "")).strip()[:200],
+            confidence=max(0.0, min(1.0, float(data.get("confidence", 0.7) or 0.7))),
+            model=self.model,
+        )
+
+    def draft_advice_answer(self, question: str, type_label: str) -> str | None:
+        """Draft an answer PROPOSAL for a legal question. It is never shown to
+        the requester until a lawyer approves or edits it — the governed gate."""
+        system = (
+            "You are in-house counsel drafting a SHORT proposed answer to a business "
+            "colleague's question, for another lawyer to review before it is sent. "
+            "Be practical and cautious; flag anything needing specialist review. "
+            "Respond with ONLY a JSON object."
+        )
+        user = (
+            f"Request category: {type_label}\nQuestion:\n{question}\n\n"
+            'Return JSON: {"answer": "<the proposed answer, 3-8 sentences, plain language>"}'
+        )
+        data = self._call(system, user)
+        if not data or not str(data.get("answer", "")).strip():
+            return self._fallback.draft_advice_answer(question, type_label)
+        return str(data["answer"]).strip()[:4000]
 
     def compare_clause(self, clause_text: str, rule, ctx: dict) -> SemanticVerdict | None:
         user = (

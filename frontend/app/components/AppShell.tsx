@@ -3,6 +3,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/api";
 import { isPublicShell, useAuth } from "../../lib/auth";
+import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { IconMoon, IconSun } from "./Icons";
 
@@ -18,6 +19,7 @@ const TITLES: [RegExp, string][] = [
   [/^\/review\//, "Redline cockpit"],
   [/^\/r\//, "Request status"],
   [/^\/admin\/playbook/, "Playbook"],
+  [/^\/admin\/routing/, "Routing rules"],
   [/^\/admin/, "Users & roles"],
 ];
 function titleFor(path: string): string {
@@ -87,6 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <TopBar />
         <main className="shell-content">{children}</main>
       </div>
+      <CommandPalette />
     </div>
   );
 }

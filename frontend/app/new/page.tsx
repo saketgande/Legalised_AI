@@ -1,26 +1,46 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { api, PURPOSES, type PlaybookSummary } from "../../lib/api";
+import { api, PURPOSES, type PlaybookSummary, type RequestTypeInfo } from "../../lib/api";
 
 // mirrors the backend auto-send policy so the requester sees the likely outcome as they fill it in
 const AUTO_PURPOSES = new Set(["sales_evaluation", "vendor_evaluation", "hiring", "partnership_exploration"]);
 const AUTO_JX = new Set(["US", "US-CA", "US-NY", "US-DE"]);
 
-export default function NewRequest() {
+/* ————— step 1: what do you need? ————— */
+function TypePicker({ types, onPick }: { types: RequestTypeInfo[]; onPick: (t: RequestTypeInfo) => void }) {
+  return (
+    <div>
+      <div className="page-head">
+        <p className="kicker">New request</p>
+        <h1>What do you need from legal?</h1>
+        <p className="sub">Pick the closest match — we&rsquo;ll route it to the right process. You never need to know what happens behind the door.</p>
+      </div>
+      <div className="type-grid">
+        {types.map((t) => (
+          <button key={t.key} className="card card-pad card-hover type-card" onClick={() => onPick(t)}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontWeight: 640, fontSize: 15 }}>{t.label}</span>
+              <span className="pill state" style={{ flexShrink: 0 }}>{t.default_sla_hours}h SLA</span>
+            </div>
+            <p className="muted" style={{ fontSize: 13, margin: "8px 0 0", lineHeight: 1.5 }}>{t.description}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ————— the NDA form (the CONTRACT engine's front door) ————— */
+function NdaForm({ onBack }: { onBack: () => void }) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [books, setBooks] = useState<PlaybookSummary[]>([]);
   const [playbookId, setPlaybookId] = useState("");
   const [form, setForm] = useState({
-    requester_name: "Sam Carter",
-    requester_email: "sam.carter@northwind.example",
-    counterparty_name: "",
-    nda_type: "MUTUAL",
-    purpose: "sales_evaluation",
-    jurisdiction: "US",
-    term_months: 24,
+    counterparty_name: "", nda_type: "MUTUAL", purpose: "sales_evaluation",
+    jurisdiction: "US", term_months: 24,
   });
 
   useEffect(() => { api.listPlaybooks().then(setBooks).catch(() => setBooks([])); }, []);
@@ -43,9 +63,9 @@ export default function NewRequest() {
   }
 
   return (
-    <div style={{ maxWidth: 620, margin: "0 auto" }}>
+    <div>
       <div className="page-head">
-        <p className="kicker">New request</p>
+        <p className="kicker"><button className="linkish" onClick={onBack}>← New request</button> · NDA</p>
         <h1>Request an NDA</h1>
         <p className="sub">Tell us who it&rsquo;s with and what it&rsquo;s for — we&rsquo;ll draft it and take it from there.</p>
       </div>
@@ -125,6 +145,86 @@ export default function NewRequest() {
         </button>
         <p className="faint" style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>You&rsquo;ll get a tracking page you can check any time.</p>
       </form>
+    </div>
+  );
+}
+
+/* ————— the advice form (every ADVICE-category type) ————— */
+function AdviceForm({ type, onBack }: { type: RequestTypeInfo; onBack: () => void }) {
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [question, setQuestion] = useState("");
+  const [urgency, setUrgency] = useState("NORMAL");
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true); setError(null);
+    try {
+      const r = await api.createAdvice({ type_key: type.key, question, urgency });
+      router.push(`/r/${r.id}`);
+    } catch (err) { setError(String(err)); setSubmitting(false); }
+  }
+
+  return (
+    <div>
+      <div className="page-head">
+        <p className="kicker"><button className="linkish" onClick={onBack}>← New request</button> · {type.label}</p>
+        <h1>{type.label}</h1>
+        <p className="sub">{type.description} Typical turnaround: {type.default_sla_hours} hours.</p>
+      </div>
+
+      <form onSubmit={submit} className="card card-pad">
+        <div className="field">
+          <label>What do you need? Be as specific as you can.</label>
+          <textarea required rows={7} value={question} onChange={(e) => setQuestion(e.target.value)}
+            placeholder={type.key === "marketing_review"
+              ? "Paste the claim / copy you want reviewed, and where it will run…"
+              : "Describe the situation, what you want to do, and any deadline…"} />
+        </div>
+
+        <div className="field">
+          <label>How urgent is this?</label>
+          <div className="seg" style={{ width: "100%" }}>
+            {[["NORMAL", "Normal"], ["HIGH", "This week"], ["URGENT", "Blocking me now"]].map(([v, l]) => (
+              <button key={v} type="button" className={urgency === v ? "on" : ""} style={{ flex: 1 }}
+                onClick={() => setUrgency(v)}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {error && <div className="notice warn" style={{ marginBottom: 14 }}>{error}</div>}
+
+        <button className="btn primary" disabled={submitting} type="submit">
+          {submitting ? "Filing…" : "Send to legal"}
+        </button>
+        <p className="faint" style={{ fontSize: 12, marginTop: 10, marginBottom: 0 }}>
+          You&rsquo;ll get a tracking page; the answer lands there — no need to chase anyone.
+        </p>
+      </form>
+    </div>
+  );
+}
+
+export default function NewRequest() {
+  const [types, setTypes] = useState<RequestTypeInfo[] | null>(null);
+  const [picked, setPicked] = useState<RequestTypeInfo | null>(null);
+
+  useEffect(() => { api.requestTypes().then(setTypes).catch(() => setTypes([])); }, []);
+
+  if (types === null) return <div className="muted">Loading…</div>;
+  const container = { maxWidth: 640, margin: "0 auto" } as const;
+
+  if (!picked) {
+    // no catalog (backend older than this build) -> fall straight into the NDA form
+    if (types.length === 0) return <div style={container}><NdaForm onBack={() => {}} /></div>;
+    return <div style={{ maxWidth: 720, margin: "0 auto" }}><TypePicker types={types} onPick={setPicked} /></div>;
+  }
+  return (
+    <div style={container}>
+      {picked.category === "CONTRACT"
+        ? <NdaForm onBack={() => setPicked(null)} />
+        : <AdviceForm type={picked} onBack={() => setPicked(null)} />}
     </div>
   );
 }

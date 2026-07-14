@@ -82,6 +82,15 @@ def ingest_email(
         return IngestResult(created=True, classified="inbound", request_id=r.id, ref=r.ref,
                             direction="INBOUND", counterparty=counterparty)
 
+    if parsed.intent == "advice":
+        # a question for the legal team, not a contract ask -> the ADVICE engine
+        r = intake.create_advice(
+            db, org=org, requester=requester, actor=actor,
+            type_key="legal_question", question=f"{subject}\n\n{body}".strip(), channel="EMAIL",
+        )
+        return IngestResult(created=True, classified="advice", request_id=r.id, ref=r.ref,
+                            direction="OUTBOUND", counterparty="Legal question")
+
     if not parsed.counterparty:
         return IngestResult(
             created=False, classified="outbound",

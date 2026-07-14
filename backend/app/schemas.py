@@ -41,6 +41,32 @@ class DecideChangeIn(BaseModel):
     edited_after_text: str | None = None   # required when action == "edit"
 
 
+class CreateAdviceIn(BaseModel):
+    type_key: str                          # a request-type catalog key (ADVICE category)
+    question: str
+    urgency: str = "NORMAL"                # RequestPriority value
+    channel: str = "FORM"
+
+
+class AssignIn(BaseModel):
+    user_id: str | None = None             # null = unassign
+
+
+class SnoozeIn(BaseModel):
+    hours: int | None = None               # null = unsnooze
+
+
+class ResolveAdviceIn(BaseModel):
+    answer: str                            # the approved/edited answer text
+
+
+class BulkActionIn(BaseModel):
+    ids: list[str]
+    action: str                            # "assign" | "snooze" | "unsnooze"
+    user_id: str | None = None             # for assign
+    hours: int | None = None               # for snooze
+
+
 # ————————————————————————— outbound —————————————————————————
 class ClauseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -93,6 +119,8 @@ class RequestSummaryOut(BaseModel):
     id: str
     ref: str
     type: str
+    type_label: str | None = None      # catalog label ("Legal question")
+    category: str = "CONTRACT"         # CONTRACT | ADVICE (which engine)
     direction: str
     nda_type: str
     state: str
@@ -104,6 +132,11 @@ class RequestSummaryOut(BaseModel):
     term_months: int
     created_at: datetime
     open_steps: int
+    priority: str = "NORMAL"
+    assigned_to_user_id: str | None = None
+    assigned_to_name: str | None = None
+    snoozed_until: datetime | None = None
+    sla_target_hours: int | None = None
     playbook_id: str | None = None
     playbook_name: str | None = None
     playbook_version: int | None = None
@@ -143,6 +176,9 @@ class RequestDetailOut(RequestSummaryOut):
     ladder: LadderOut | None
     review: ReviewOut | None
     timeline: list[TimelineEventOut]
+    details: str | None = None            # the ADVICE ask
+    resolution_draft: str | None = None   # agent's PENDING answer proposal
+    resolution_note: str | None = None    # the approved answer
 
 
 class RequesterStatusOut(BaseModel):
@@ -151,10 +187,12 @@ class RequesterStatusOut(BaseModel):
     nda_type: str
     purpose: str
     stage: str            # friendly stage label
-    stage_index: int      # 0..4
+    stage_index: int      # index into ``stages``
+    stages: list[str] | None = None  # per-engine tracker labels; null = NDA default
     needs_you: bool
     headline: str
     detail: str
     document_ready: bool
+    answer: str | None = None       # the approved advice answer, once resolved
     expires_at: str | None = None   # renewal clock, once executed
     timeline: list[TimelineEventOut]

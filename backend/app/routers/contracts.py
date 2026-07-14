@@ -10,11 +10,16 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+
 from ..db import get_db
-from ..models import User
+from ..models import Request, User
 from ..permissions import Permission
 from ..security import require
 from ..services.contracts import ContractError, contract_registry, start_renewal
+from ..services.obligations import (
+    ObligationError, extract_obligations_for_contract, list_obligations, resolve_obligation,
+)
 
 router = APIRouter(prefix="/api/contracts", tags=["contracts"])
 
@@ -25,6 +30,43 @@ def list_contracts(
     db: Session = Depends(get_db),
 ):
     return contract_registry(db, user.org_id)
+
+
+@router.get("/{contract_id}/obligations")
+def contract_obligations(
+    contract_id: str,
+    user: User = Depends(require(Permission.REQUEST_READ_ALL)),
+    db: Session = Depends(get_db),
+):
+    r = db.get(Request, contract_id)
+    if r is None or r.org_id != user.org_id:
+        raise HTTPException(404, "contract not found")
+    # backfill for contracts executed before obligations shipped (idempotent)
+    if r.executed_at is not None:
+        extract_obligations_for_contract(db, r)
+        db.commit()
+    return {"obligations": list_obligations(db, user.org_id, contract_id)}
+
+
+class ObligationResolveIn(BaseModel):
+    done: bool = True  # False = waive
+
+
+@router.post("/obligations/{obligation_id}/resolve")
+def resolve_contract_obligation(
+    obligation_id: str, payload: ObligationResolveIn,
+    user: User = Depends(require(Permission.REVIEW_DECIDE)),
+    db: Session = Depends(get_db),
+):
+    try:
+        o = resolve_obligation(
+            db, user.org_id, obligation_id, done=payload.done,
+            actor_id=user.id, actor_name=user.name,
+        )
+    except ObligationError as e:
+        raise HTTPException(404, str(e))
+    db.commit()
+    return {"ok": True, "id": o.id, "status": o.status.value}
 
 
 @router.post("/{contract_id}/renew")

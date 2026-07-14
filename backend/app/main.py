@@ -18,7 +18,10 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, contracts, esign, inbound, intake, mailbox, meta, metrics, playbook, requests
+from .routers import (
+    admin, auth, contracts, esign, inbound, intake, mailbox, meta, metrics,
+    playbook, requests, routing_admin,
+)
 
 log = logging.getLogger("frontdoor")
 
@@ -216,6 +219,70 @@ def _ensure_demo_contracts() -> None:
         db.close()
 
 
+def _ensure_request_types_and_ladders() -> None:
+    """Startup: seed the default request-type catalog per org (idempotent, respects
+    admin edits) and give the standard NDA playbook its position ladders — fallback
+    positions + walk-away lines on the three negotiation-heavy rules. Self-healing:
+    only fills rules whose ladder is still empty, so lawyer edits survive."""
+    from sqlalchemy import select
+
+    from .models import Organization, Playbook, PlaybookRule
+    from .services.request_types import ensure_default_request_types
+
+    LADDERS = {
+        "TRM-01": {
+            "fallbacks": [
+                {"label": "36-month term", "rung": "vp_legal",
+                 "body": "This Agreement continues for thirty-six (36) months; confidentiality "
+                         "obligations survive thirty-six (36) months following disclosure."},
+                {"label": "60-month survival for trade secrets", "rung": "vp_legal",
+                 "body": "Confidentiality obligations survive sixty (60) months for information "
+                         "constituting a trade secret, twenty-four (24) months otherwise."},
+            ],
+            "walk_away": "A perpetual or indefinite confidentiality term with no survival limit.",
+        },
+        "LoL-02": {
+            "fallbacks": [
+                {"label": "24-month fees cap", "rung": "vp_legal",
+                 "body": "Aggregate liability shall not exceed the fees paid or payable in the "
+                         "twenty-four (24) months preceding the claim; breaches of confidentiality "
+                         "obligations remain uncapped."},
+            ],
+            "walk_away": "Any cap that applies to breaches of confidentiality, or a cap below "
+                         "12 months' fees.",
+        },
+        "GOV-01": {
+            "fallbacks": [
+                {"label": "New York law", "rung": "vp_legal",
+                 "body": "This Agreement is governed by the laws of the State of New York, and the "
+                         "parties consent to the exclusive jurisdiction of the courts located there."},
+                {"label": "California law", "rung": "vp_legal",
+                 "body": "This Agreement is governed by the laws of the State of California, and the "
+                         "parties consent to the exclusive jurisdiction of the courts located there."},
+            ],
+            "walk_away": "Governing law outside the United States, or mandatory arbitration seated "
+                         "outside the US.",
+        },
+    }
+
+    db = SessionLocal()
+    try:
+        for org in db.execute(select(Organization)).scalars().all():
+            ensure_default_request_types(db, org.id)
+            for pb in db.execute(select(Playbook).where(Playbook.org_id == org.id)).scalars().all():
+                rules = db.execute(
+                    select(PlaybookRule).where(PlaybookRule.playbook_id == pb.id)
+                ).scalars().all()
+                for rule in rules:
+                    ladder = LADDERS.get(rule.rule_key)
+                    if ladder and not (rule.fallbacks or []) and not (rule.walk_away_text or "").strip():
+                        rule.fallbacks = ladder["fallbacks"]
+                        rule.walk_away_text = ladder["walk_away"]
+        db.commit()
+    finally:
+        db.close()
+
+
 def _poll_all_sync() -> None:
     """Poll every active mailbox once, in its own DB session (runs in a threadpool
     because imaplib is blocking)."""
@@ -259,6 +326,7 @@ def _startup() -> None:
     _backfill_demo_auth()
     _ensure_demo_playbooks()
     _ensure_demo_contracts()
+    _ensure_request_types_and_ladders()
     if settings.email_polling_enabled:
         asyncio.create_task(_email_poll_loop())  # in-process inbox poller
 
@@ -296,4 +364,5 @@ app.include_router(playbook.list_router)
 app.include_router(mailbox.router)
 app.include_router(metrics.router)
 app.include_router(contracts.router)
+app.include_router(routing_admin.router)
 app.include_router(meta.router)

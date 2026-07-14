@@ -5,7 +5,7 @@ import { api, RUNG_RANK, type ProposedChange, type RequestDetail } from "../../.
 import { useAuth } from "../../../lib/auth";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Timeline } from "../../components/Timeline";
-import { RiskBadge, WorkflowRail } from "../../components/Workflow";
+import { ChainLog, RiskBadge, WorkflowRail } from "../../components/Workflow";
 
 /* ---------- the negotiation loop panel (shared by inbound + outbound) ---------- */
 function NegotiationPanel({ r, busy, act, onSignature, canSendPerm, canReturnPerm }: {
@@ -466,10 +466,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                       <WorkflowRail wf={r.workflow} round={r.round} />
                     </div>
                   )}
-                  <div className="card card-pad" style={{ marginTop: 4 }}>
-                    <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
-                    <Timeline events={r.timeline} />
-                  </div>
+                  <div style={{ marginTop: 4 }}><ChainLog events={r.timeline} /></div>
                 </div>
               </div>
 
@@ -559,10 +556,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
                 <WorkflowRail wf={r.workflow} round={r.round} />
               </div>
             )}
-            <div className="card" style={{ padding: 16 }}>
-              <div className="kicker" style={{ marginBottom: 10 }}>Audit timeline</div>
-              <Timeline events={r.timeline} />
-            </div>
+            <ChainLog events={r.timeline} />
           </div>
         </div>
       )}

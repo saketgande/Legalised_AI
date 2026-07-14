@@ -13,9 +13,6 @@ type Rung = {
   cond?: { field: string; value?: number; label?: string };
 };
 
-const KIND_COLOR: Record<string, string> = {
-  D: "#9E6D12", A: "#3E6FB0", H: "#6C4E9E", T: "#2E7D74",
-};
 const KIND_LABEL: Record<string, string> = {
   D: "DETERMINISTIC", A: "AI", H: "HUMAN", T: "THIRD PARTY",
 };
@@ -27,13 +24,7 @@ const BAND_DESC: Record<string, string> = {
 };
 
 function KindBadge({ k }: { k: string }) {
-  return (
-    <span className="mono" style={{
-      fontSize: 9.5, fontWeight: 700, letterSpacing: ".04em", padding: "2px 7px",
-      borderRadius: 4, border: `1px solid ${KIND_COLOR[k]}55`, color: KIND_COLOR[k],
-      whiteSpace: "nowrap",
-    }}>{k} · {KIND_LABEL[k]}</span>
-  );
+  return <span className={`tbadge ${k}`}>{k} · {KIND_LABEL[k]}</span>;
 }
 
 /* ————— the risk-ladder matrix editor (band -> rung chips) ————— */

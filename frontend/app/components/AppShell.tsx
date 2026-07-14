@@ -9,6 +9,7 @@ import { IconMoon, IconSun } from "./Icons";
 const TITLES: [RegExp, string][] = [
   [/^\/$/, "Dashboard"],
   [/^\/inbox/, "Legal inbox"],
+  [/^\/contracts/, "Contract registry"],
   [/^\/sla/, "SLA & operations"],
   [/^\/new/, "Request an NDA"],
   [/^\/chat/, "Ask legal"],

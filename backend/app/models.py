@@ -203,6 +203,13 @@ class Request(Base):
     esign_provider: Mapped[str | None] = mapped_column(String, nullable=True)  # stub | docusign
     esign_status: Mapped[str | None] = mapped_column(String, nullable=True)    # sent | completed | declined
 
+    # contract lifecycle (the CLM half) — stamped once at execution, never overwritten.
+    # expires_at = executed_at + term_months. renewed_from_id links a renewal back to
+    # the contract it replaces so the registry can mark the original "renewed".
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    renewed_from_id: Mapped[str | None] = mapped_column(ForeignKey("request.id"), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

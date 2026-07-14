@@ -163,6 +163,7 @@ export type RequesterStatus = {
   headline: string;
   detail: string;
   document_ready: boolean;
+  expires_at: string | null;
   timeline: TimelineEvent[];
 };
 
@@ -203,6 +204,25 @@ export type OpsSummary = {
   targets: Record<string, number>;
   volume_7d: number[];
   rows: OpsRow[];
+};
+
+export type ContractRow = {
+  id: string;
+  ref: string;
+  counterparty: string;
+  nda_type: string;
+  direction: string;
+  term_months: number;
+  executed_at: string | null;
+  expires_at: string | null;
+  days_left: number | null;
+  status: "active" | "expiring" | "expired" | "renewed";
+};
+
+export type ContractRegistry = {
+  totals: { total: number; active: number; expiring: number; expired: number; renewed: number };
+  expiring_soon_days: number;
+  rows: ContractRow[];
 };
 
 // ——— token handling ———
@@ -352,6 +372,13 @@ export const api = {
 
   // ops metrics (SLA + deflection dashboard)
   opsSummary: () => fetch(`${BASE}/api/ops/summary`, { cache: "no-store", headers: H() }).then(j<OpsSummary>),
+
+  // contract registry (CLM — post-signature renewal tracking)
+  contracts: () => fetch(`${BASE}/api/contracts`, { cache: "no-store", headers: H() }).then(j<ContractRegistry>),
+  renewContract: (id: string) =>
+    fetch(`${BASE}/api/contracts/${id}/renew`, { method: "POST", headers: H() }).then(
+      j<{ id: string; ref: string; state: string; lane: string | null; renewed_from_id: string }>,
+    ),
 
   // admin
   listUsers: () => fetch(`${BASE}/api/admin/users`, { cache: "no-store", headers: H() }).then(j<AuthUser[]>),

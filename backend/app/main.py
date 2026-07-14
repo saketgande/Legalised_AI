@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
-from .routers import admin, auth, esign, inbound, intake, mailbox, meta, metrics, playbook, requests
+from .routers import admin, auth, contracts, esign, inbound, intake, mailbox, meta, metrics, playbook, requests
 
 log = logging.getLogger("frontdoor")
 
@@ -144,6 +144,69 @@ def _ensure_demo_playbooks() -> None:
         db.close()
 
 
+def _ensure_demo_contracts() -> None:
+    """Give the demo org a few executed contracts spanning the renewal lifecycle
+    (active / expiring soon / expired) so the Contract registry is demonstrable
+    without waiting for real NDAs to age into expiry. Idempotent: guarded by ref,
+    and only ever adds — never touches an existing request."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import select
+
+    from .models import (
+        Counterparty, Direction, Lane, NdaType, Organization, OurRole, Person,
+        Request, RequestState,
+    )
+    from .services.contracts import add_months
+
+    now = datetime.now(timezone.utc)
+    # (ref, counterparty, nda_type, purpose, jurisdiction, term_months, executed_at)
+    specs = [
+        ("NDA-2024-0148", "Meridian Health Systems", NdaType.MUTUAL,
+         "vendor_evaluation", "US", 24, now - timedelta(days=63)),        # active
+        ("NDA-2023-0092", "Vantage Robotics", NdaType.MUTUAL,
+         "partnership_exploration", "US", 24, add_months(now, -23)),      # expiring soon
+        ("NDA-2023-0031", "Cobalt Analytics", NdaType.ONE_WAY,
+         "sales_evaluation", "US", 12, add_months(now, -14)),            # expired
+    ]
+
+    db = SessionLocal()
+    try:
+        for org in db.execute(select(Organization)).scalars().all():
+            requester = db.execute(
+                select(Person).where(Person.org_id == org.id)
+            ).scalars().first()
+            if requester is None:
+                requester = Person(org_id=org.id, name="Sam Carter",
+                                   email="sam.carter@northwind.example", department="Sales")
+                db.add(requester)
+                db.flush()
+            for ref, cp_name, ndatype, purpose, jx, term, executed in specs:
+                if db.execute(
+                    select(Request).where(Request.org_id == org.id, Request.ref == ref)
+                ).scalars().first():
+                    continue
+                cp = db.execute(
+                    select(Counterparty).where(Counterparty.org_id == org.id, Counterparty.name == cp_name)
+                ).scalars().first()
+                if cp is None:
+                    cp = Counterparty(org_id=org.id, name=cp_name)
+                    db.add(cp)
+                    db.flush()
+                db.add(Request(
+                    ref=ref, org_id=org.id, type="NDA", direction=Direction.OUTBOUND,
+                    nda_type=ndatype, our_role=OurRole.BOTH, state=RequestState.FILED,
+                    lane=Lane.AUTO, requester_id=requester.id, counterparty_id=cp.id,
+                    purpose=purpose, jurisdiction=jx, term_months=term, channel="FORM",
+                    esign_provider="stub", esign_status="completed",
+                    created_at=executed, updated_at=executed,
+                    executed_at=executed, expires_at=add_months(executed, term),
+                ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def _poll_all_sync() -> None:
     """Poll every active mailbox once, in its own DB session (runs in a threadpool
     because imaplib is blocking)."""
@@ -186,6 +249,7 @@ def _startup() -> None:
         seed()
     _backfill_demo_auth()
     _ensure_demo_playbooks()
+    _ensure_demo_contracts()
     if settings.email_polling_enabled:
         asyncio.create_task(_email_poll_loop())  # in-process inbox poller
 
@@ -222,4 +286,5 @@ app.include_router(playbook.router)
 app.include_router(playbook.list_router)
 app.include_router(mailbox.router)
 app.include_router(metrics.router)
+app.include_router(contracts.router)
 app.include_router(meta.router)

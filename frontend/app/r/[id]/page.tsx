@@ -74,7 +74,12 @@ export default function RequesterStatusPage({ params }: { params: { id: string }
           <span style={{ fontSize: 16 }}>✓</span>
           <div>
             <div style={{ fontWeight: 620 }}>Your executed NDA is on file.</div>
-            <div style={{ fontSize: 12.5, opacity: 0.9 }}>The {s.nda_type === "MUTUAL" ? "mutual" : "one-way"} NDA with {s.counterparty_name} is signed and its renewal is tracked.</div>
+            <div style={{ fontSize: 12.5, opacity: 0.9 }}>
+              The {s.nda_type === "MUTUAL" ? "mutual" : "one-way"} NDA with {s.counterparty_name} is signed
+              {s.expires_at
+                ? <> — renewal tracked, expires <b>{new Date(s.expires_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })}</b>.</>
+                : <> and its renewal is tracked.</>}
+            </div>
           </div>
         </div>
       )}

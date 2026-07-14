@@ -156,4 +156,5 @@ class RequesterStatusOut(BaseModel):
     headline: str
     detail: str
     document_ready: bool
+    expires_at: str | None = None   # renewal clock, once executed
     timeline: list[TimelineEventOut]

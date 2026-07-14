@@ -466,7 +466,11 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .stat .stat-sub .warn { color: var(--warn); }
 .stat .stat-sub .crit { color: var(--crit); }
 .stat .val.crit { color: var(--crit); }
+.stat .val.good { color: var(--good); }
+.stat .val.warn { color: var(--warn); }
 .stat.stat-crit { border-color: var(--crit-line); background: var(--crit-bg); }
+.stat.stat-warn { border-color: var(--warn-line); background: var(--warn-bg); }
+.crit-txt { color: var(--crit); font-weight: 600; }
 .sla-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line-2); font-size: 12px; color: var(--faint); }
 .sla-clock { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
 .sla-bar { height: 6px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); overflow: hidden; }

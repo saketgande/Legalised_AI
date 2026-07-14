@@ -44,6 +44,7 @@ from ..security import assert_can_clear_rung, current_user, require
 from ..services import esign
 from ..services.approvals import all_steps_cleared, build_ladder, ladder_for_request
 from ..services.audit import record_audit
+from ..services.contracts import stamp_execution
 from ..services.generation import generate_outbound_nda
 from ..services.triage import triage_outbound
 
@@ -359,7 +360,10 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
         detail = "We'll drop the signed copy here as soon as it's countersigned."
     elif r.state in (RequestState.EXECUTED, RequestState.FILED):
         headline = f"Signed by {cp.name} — you're all set."
-        detail = "The executed NDA is filed and its renewal date is being tracked."
+        if r.expires_at:
+            detail = f"The executed NDA is filed. Renewal is tracked — it expires {r.expires_at.strftime('%b %d, %Y')}."
+        else:
+            detail = "The executed NDA is filed and its renewal date is being tracked."
     else:
         headline = "Your NDA is being drafted."
         detail = "We're assembling it from the approved template. This is usually instant."
@@ -375,6 +379,7 @@ def requester_status(request_id: str, user: User = Depends(current_user), db: Se
         "headline": headline,
         "detail": detail,
         "document_ready": r.state in (RequestState.EXECUTED, RequestState.FILED),
+        "expires_at": r.expires_at.isoformat() if r.expires_at else None,
         "timeline": _timeline(db, r.id),
     }
 
@@ -482,6 +487,7 @@ def simulate_signature(
         raise HTTPException(409, "real DocuSign envelope — completion arrives via /api/esign/webhook")
     cp = db.get(Counterparty, r.counterparty_id)
     r.state = RequestState.EXECUTED
+    stamp_execution(r, datetime.now(timezone.utc))  # start the renewal clock
     record_audit(
         db, org_id=r.org_id, action="request.executed", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.SYSTEM, actor_label="E-Sign (stub)",
@@ -491,7 +497,8 @@ def simulate_signature(
     record_audit(
         db, org_id=r.org_id, action="request.filed", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.SYSTEM, actor_label="System",
-        metadata={"renewal_tracked": True, "expires_in_months": r.term_months},
+        metadata={"renewal_tracked": True, "expires_in_months": r.term_months,
+                  "expires_at": r.expires_at.isoformat() if r.expires_at else None},
     )
     db.commit()
     db.refresh(r)

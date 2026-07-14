@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "../../lib/auth";
 import {
   IconBook, IconChat, IconDashboard, IconGauge, IconInbox, IconMail, IconPlus,
-  IconReview, IconShield, IconSignOut, IconUsers,
+  IconRenew, IconReview, IconShield, IconSignOut, IconUsers,
 } from "./Icons";
 
 type Item = { href: string; label: string; perm: string | null; Icon: (p: any) => JSX.Element };
@@ -16,6 +16,7 @@ const GROUPS: Group[] = [
     items: [
       { href: "/", label: "Dashboard", perm: null, Icon: IconDashboard },
       { href: "/inbox", label: "Legal inbox", perm: "request:read_all", Icon: IconInbox },
+      { href: "/contracts", label: "Contracts", perm: "request:read_all", Icon: IconRenew },
       { href: "/sla", label: "SLA & metrics", perm: "request:read_all", Icon: IconGauge },
     ],
   },

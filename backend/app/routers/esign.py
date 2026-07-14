@@ -11,10 +11,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request as HttpRe
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from datetime import datetime, timezone
+
 from ..config import settings
 from ..db import get_db
 from ..models import ActorType, Counterparty, Request, RequestState
 from ..services.audit import record_audit
+from ..services.contracts import stamp_execution
 
 router = APIRouter(prefix="/api/esign", tags=["esign"])
 
@@ -57,6 +60,7 @@ async def docusign_webhook(
     if "completed" in status_l and r.state == RequestState.OUT_FOR_SIGNATURE:
         cp = db.get(Counterparty, r.counterparty_id)
         r.state = RequestState.EXECUTED
+        stamp_execution(r, datetime.now(timezone.utc))  # start the renewal clock
         record_audit(
             db, org_id=r.org_id, action="request.executed", resource_type="Request", resource_id=r.id,
             actor_type=ActorType.SYSTEM, actor_label="DocuSign",
@@ -66,7 +70,8 @@ async def docusign_webhook(
         record_audit(
             db, org_id=r.org_id, action="request.filed", resource_type="Request", resource_id=r.id,
             actor_type=ActorType.SYSTEM, actor_label="System",
-            metadata={"envelope_id": envelope_id, "provider": "docusign"},
+            metadata={"envelope_id": envelope_id, "provider": "docusign",
+                      "expires_at": r.expires_at.isoformat() if r.expires_at else None},
         )
     db.commit()
     return {"ok": True}

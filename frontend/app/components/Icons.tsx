@@ -54,3 +54,6 @@ export const IconMoon = (p: P) => (
 export const IconGauge = (p: P) => (
   <svg {...base(p)}><path d="M12 14a2 2 0 0 0 2-2c0-1.1-2-5-2-5s-2 3.9-2 5a2 2 0 0 0 2 2Z" /><path d="M4.5 19a9 9 0 1 1 15 0" /></svg>
 );
+export const IconRenew = (p: P) => (
+  <svg {...base(p)}><path d="M21 12a9 9 0 1 1-2.64-6.36" /><path d="M21 3v5h-5" /></svg>
+);

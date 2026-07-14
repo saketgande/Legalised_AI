@@ -442,4 +442,37 @@ select { appearance: none; background-image: url("data:image/svg+xml;utf8,<svg x
 .tbl .todo-act { color: var(--accent); font-weight: 600; }
 .tbl .todo-ready { color: var(--good); font-weight: 600; }
 
+/* ─────────────────────────── morning brief (reviewer home) ─────────────────────────── */
+.brief-rows { display: flex; flex-direction: column; }
+.brow { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 15px 4px; border-top: 1px solid var(--line-2); }
+.brow:first-child { border-top: 0; }
+.brow .bdot { width: 9px; height: 9px; border-radius: 50%; }
+.brow .bhead { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.brow .bref { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-right: 7px; }
+.brow .bsub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.qhealth { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.qstats { display: flex; }
+.qstat { padding: 0 20px; border-left: 1px solid var(--line-2); }
+.qstat:first-child { padding-left: 0; border-left: 0; }
+.qstat .n { font-size: 23px; font-weight: 680; font-variant-numeric: tabular-nums; line-height: 1; }
+.qstat .n.good { color: var(--good); }
+.qstat .l { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+.spark-wrap { margin-left: auto; }
+.spark-cap { font-size: 11px; color: var(--faint); text-align: right; margin-bottom: 4px; }
+.spark { display: block; width: 180px; height: 46px; }
+
+/* ─────────────────────────── package tracker (requester status) ─────────────────────────── */
+.pkg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin: 12px 0 8px; }
+.pkg-step { text-align: center; position: relative; padding-top: 40px; }
+.pkg-step .rail { position: absolute; top: 15px; left: -50%; width: 100%; height: 2px; background: var(--line); }
+.pkg-step:first-child .rail { display: none; }
+.pkg-step .pnode { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 2px solid var(--line); color: var(--faint); font-size: 13px; font-weight: 700; }
+.pkg-step.done .rail, .pkg-step.here .rail { background: var(--good); }
+.pkg-step.done .pnode { background: var(--good); border-color: var(--good); color: #fff; }
+.pkg-step.here .pnode { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 0 4px var(--accent-weak); }
+.pkg-step .plabel { font-size: 12.5px; font-weight: 600; }
+.pkg-step.todo .plabel { color: var(--faint); font-weight: 500; }
+.pkg-step.here .plabel { color: var(--accent-ink); }
+.pkg-step .ptime { font-size: 11px; color: var(--faint); margin-top: 3px; }
+
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

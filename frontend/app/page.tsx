@@ -32,6 +32,7 @@ export default function Home() {
   const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [filter, setFilter] = useState<string>("all"); // "all" | "critical" | <kind>
 
   const load = useCallback(() => api.decisions().then(setFeed).catch(() => setFeed({ decisions: [], summary: { total: 0, critical: 0, by_kind: {} } })), []);
   useEffect(() => { load(); const t = setInterval(load, 12000); return () => clearInterval(t); }, [load]);
@@ -67,11 +68,15 @@ export default function Home() {
           <span style={{ fontSize: 14, color: "var(--ink)", lineHeight: 1.5 }}>{brief(feed)}</span>
           {feed.summary.total > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginLeft: "auto" }}>
-              {feed.summary.critical > 0 && <span className="pill crit">{feed.summary.critical} critical</span>}
+              {feed.summary.critical > 0 && (
+                <button className="pill crit" style={{ cursor: "pointer", opacity: filter === "critical" ? 1 : 0.85 }}
+                  onClick={() => setFilter((f) => f === "critical" ? "all" : "critical")}>{feed.summary.critical} critical</button>
+              )}
               {Object.entries(feed.summary.by_kind).map(([k, n]) => (
-                <span key={k} className="pill" style={{ background: "var(--surface-2)", color: KIND[k]?.color || "var(--muted)" }}>
+                <button key={k} className="pill" style={{ background: "var(--surface-2)", color: KIND[k]?.color || "var(--muted)", cursor: "pointer", outline: filter === k ? `1px solid ${KIND[k]?.color}` : "none" }}
+                  onClick={() => setFilter((f) => f === k ? "all" : k)}>
                   {KIND[k]?.icon} {n} {KIND[k]?.label.toLowerCase() ?? k}
-                </span>
+                </button>
               ))}
             </div>
           )}
@@ -79,7 +84,15 @@ export default function Home() {
       )}
 
       {/* Decisions feed */}
-      <div className="kicker" style={{ margin: "18px 0 10px" }}>Decisions awaiting you {feed && <span className="faint">· {feed.summary.total}</span>}</div>
+      {(() => {
+        const shown = !feed ? [] : feed.decisions.filter((d) =>
+          filter === "all" ? true : filter === "critical" ? d.severity === "critical" : d.kind === filter);
+        return (
+      <>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0 10px" }}>
+        <span className="kicker">Decisions awaiting you {feed && <span className="faint">· {filter === "all" ? feed.summary.total : shown.length}</span>}</span>
+        {filter !== "all" && <button className="linkish" style={{ fontSize: 11 }} onClick={() => setFilter("all")}>clear filter ✕</button>}
+      </div>
 
       {!feed ? (
         <div className="muted" style={{ padding: 20 }}>Loading…</div>
@@ -93,9 +106,11 @@ export default function Home() {
             <Link href="/inbox" className="btn sm">Open the queue</Link>
           </div>
         </div>
+      ) : shown.length === 0 ? (
+        <div className="muted" style={{ padding: 20, fontSize: 13 }}>Nothing matches this filter. <button className="linkish" onClick={() => setFilter("all")}>Show all →</button></div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {feed.decisions.map((d) => {
+          {shown.map((d) => {
             const meta = KIND[d.kind] || { icon: "•", color: "var(--muted)", label: d.kind };
             const isEditing = editing === d.id;
             return (
@@ -137,6 +152,9 @@ export default function Home() {
           })}
         </div>
       )}
+      </>
+        );
+      })()}
     </div>
   );
 }

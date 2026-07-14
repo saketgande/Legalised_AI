@@ -200,6 +200,11 @@ class HeuristicAIClient:
     def draft_advice_answer(self, question: str, type_label: str) -> str | None:
         return None  # abstain — an unsourced canned answer is worse than none
 
+    def assess_risk(self, request, run, det_score: int) -> dict | None:
+        """No model — the deterministic factor core stands alone. Abstaining
+        (rather than faking a judgement) is the whole point of the hybrid."""
+        return None
+
 
 _SYSTEM = (
     "You are senior in-house counsel reviewing a counterparty's contract clause against "
@@ -320,6 +325,36 @@ class ClaudeAIClient:
             confidence=max(0.0, min(1.0, float(data.get("confidence", 0.7) or 0.7))),
             model=self.model,
         )
+
+    def assess_risk(self, request, run, det_score: int) -> dict | None:
+        """One judgement pass over the round: may ADD 0-30 points with a note.
+        The caller clamps to >= 0 — the model can raise severity, never lower
+        it (deterministic findings are the floor)."""
+        findings = ""
+        if run is not None:
+            findings = "\n".join(
+                f"- {c.finding} · {c.heading}: {(c.rationale or '')[:160]}"
+                for c in (run.changes or [])
+            )[:4000] or "(no findings)"
+        user = (
+            f"Contract type: {(request.type or 'nda').upper()} · direction {request.direction.value} · "
+            f"jurisdiction {request.jurisdiction} · term {request.term_months}mo · "
+            f"purpose {request.purpose}\n"
+            f"Deterministic risk score so far: {det_score}/100 (this is the floor — you may only add).\n"
+            f"Round findings:\n{findings or '(our own paper, assembled from the approved playbook)'}\n\n"
+            "Is there residual legal risk the deterministic factors under-weight "
+            "(unusual combinations, aggressive framing, regulatory exposure)? Return JSON: "
+            '{"added_points": <int 0-30, 0 if the deterministic score already captures it>, '
+            '"note": "<=25 word reason for any addition"}'
+        )
+        data = self._call(_SYSTEM, user)
+        if not data or "added_points" not in data:
+            return None  # abstain — deterministic floor stands
+        try:
+            return {"added_points": int(data.get("added_points", 0)),
+                    "note": str(data.get("note", "")), "model": self.model}
+        except (TypeError, ValueError):
+            return None
 
     def draft_advice_answer(self, question: str, type_label: str) -> str | None:
         """Draft an answer PROPOSAL for a legal question. It is never shown to

@@ -116,6 +116,13 @@ class ObligationStatus(str, enum.Enum):
     WAIVED = "WAIVED"
 
 
+class RiskBand(str, enum.Enum):
+    LOW = "LOW"            # on-playbook / trivial deltas — light or no ladder
+    MEDIUM = "MEDIUM"      # bounded deviations — counsel-level sign-off
+    HIGH = "HIGH"          # serious deviations / off-policy facts — senior sign-off
+    CRITICAL = "CRITICAL"  # walk-away breaches, sanctions posture — GC, all hands
+
+
 # ———————————————————————— shared entities ————————————————————————
 class Organization(Base):
     __tablename__ = "organization"
@@ -175,6 +182,11 @@ class RequestType(Base):
     default_sla_hours: Mapped[int] = mapped_column(Integer, default=24)
     ordinal: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Risk-band -> approval-ladder matrix for CONTRACT types. The governance
+    # policy AS DATA: {"LOW": [], "MEDIUM": ["vp_legal"], "HIGH": ["vp_legal","gc"],
+    # "CRITICAL": ["vp_legal","gc"]}. Non-NDA types keep every band non-empty —
+    # "always sees a lawyer" is a matrix row, not a hardcoded gate.
+    risk_ladders: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -425,6 +437,27 @@ class ProposedChange(Base):
     decided_by: Mapped[str | None] = mapped_column(String, nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     run: Mapped[ReviewRun] = relationship(back_populates="changes")
+
+
+# ————————————————————— risk assessment (score-driven governance) —————————————————————
+class RiskAssessment(Base):
+    """One scored risk snapshot per (request, round). The deterministic core is
+    computed from the round's findings + request facts; an optional AI pass may
+    only ADD points (raise severity), never subtract — the same floor discipline
+    as the redline engine's post-checks. The band picks the approval ladder."""
+    __tablename__ = "risk_assessment"
+    __table_args__ = (UniqueConstraint("request_id", "round", name="uq_risk_request_round"),)
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    request_id: Mapped[str] = mapped_column(ForeignKey("request.id"), nullable=False)
+    round: Mapped[int] = mapped_column(Integer, default=1)
+    review_run_id: Mapped[str | None] = mapped_column(ForeignKey("review_run.id"), nullable=True)
+    score: Mapped[int] = mapped_column(Integer, nullable=False)  # 0-100 (deterministic + ai_adjustment)
+    band: Mapped[RiskBand] = mapped_column(Enum(RiskBand), nullable=False)
+    factors: Mapped[list] = mapped_column(JSON, default=list)  # [{label, points, kind}]
+    ai_adjustment: Mapped[int] = mapped_column(Integer, default=0)  # >= 0 by construction
+    ai_note: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String, default="deterministic")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 # ————————————————————— obligations (post-signature CLM) —————————————————————

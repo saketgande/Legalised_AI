@@ -172,6 +172,17 @@ class ReviewOut(BaseModel):
     required_rungs: list[str]
 
 
+class RiskOut(BaseModel):
+    round: int
+    score: int
+    band: str
+    factors: list[dict]
+    ai_adjustment: int
+    ai_note: str
+    model: str
+    created_at: datetime
+
+
 class RequestDetailOut(RequestSummaryOut):
     triage_reasons: list[str]
     document: DocumentOut | None
@@ -181,6 +192,8 @@ class RequestDetailOut(RequestSummaryOut):
     details: str | None = None            # the ADVICE ask
     resolution_draft: str | None = None   # agent's PENDING answer proposal
     resolution_note: str | None = None    # the approved answer
+    risk: RiskOut | None = None           # the current round's risk assessment
+    risk_history: list[RiskOut] = []      # one per round, ascending
 
 
 class RequesterStatusOut(BaseModel):

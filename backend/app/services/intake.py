@@ -26,7 +26,6 @@ from ..models import (
     Request,
     RequestState,
 )
-from .approvals import build_ladder
 from .audit import record_audit
 from .generation import generate_outbound_nda
 from .redline import classify, run_inbound_review, segment
@@ -205,35 +204,15 @@ def create_outbound(
     result = triage_outbound(r, counterparty)
     r.lane = result.lane
     r.triage_reasons = result.reasons
-    triage_was_auto = result.lane == Lane.AUTO
-    # only the NDA wedge has earned auto-send; every other contract type gets a
-    # lawyer before it leaves the building, whatever triage thought
-    gate_reasons: list[str] = []
-    if tkey != "nda" and r.lane == Lane.AUTO:
-        gate = f"{type_label} always gets attorney review before sending."
-        r.lane = Lane.ASSISTED
-        r.triage_reasons = list(r.triage_reasons) + [gate]
-        result.lane = Lane.ASSISTED
-        gate_reasons = [gate]
     r.state = RequestState.ROUTED
-    # the ledger row must explain the lane it records — when the type gate pulled an
-    # AUTO-cleared request back, the gate line belongs on the immutable ledger too
     record_audit(
         db, org_id=org, action="request.routed", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.AGENT, actor_label="Intake Assistant",
-        metadata={"lane": result.lane.value, "reasons": result.reasons + gate_reasons},
+        metadata={"lane": result.lane.value, "reasons": result.reasons},
     )
     from .routing import apply_routing_rules
 
     fired = apply_routing_rules(db, r)  # admin rules run after triage; may escalate/assign
-    result.lane = r.lane                # a rule may have forced ESCALATED
-    # When triage itself cleared the request for AUTO and it was pulled back by the
-    # type gate and/or a routing rule, the ladder must cite THOSE — not the triage
-    # lines (which are pro-approval justifications; keyword-mapping them would
-    # demand GC sign-off with nonsense step text).
-    ladder_reasons = list(result.reasons)
-    if triage_was_auto and result.lane != Lane.AUTO:
-        ladder_reasons = gate_reasons + fired
     generate_outbound_nda(db, r)
     r.state = RequestState.DRAFTED
     doc = db.get(Document, r.document_id)
@@ -243,20 +222,9 @@ def create_outbound(
         actor_type=ActorType.AGENT, actor_label="Playbook Engine",
         metadata={"title": doc.title, "content_hash": version.content_hash},
     )
-    if result.lane == Lane.AUTO:
-        r.state = RequestState.APPROVED
-        record_audit(
-            db, org_id=org, action="request.auto_approved", resource_type="Request", resource_id=r.id,
-            actor_type=ActorType.AGENT, actor_label="Policy Engine", metadata={"reasons": result.reasons},
-        )
-    else:
-        build_ladder(db, r, ladder_reasons)
-        r.state = RequestState.IN_REVIEW
-        record_audit(
-            db, org_id=org, action="review.requested", resource_type="Request", resource_id=r.id,
-            actor_type=ActorType.SYSTEM, actor_label="System",
-            metadata={"lane": result.lane.value, "reasons": ladder_reasons},
-        )
+    # score-driven governance: the drafted round gets a risk assessment, and the
+    # per-type band->rungs matrix picks the ladder (no more triage-reason mapping)
+    finalize_round_governance(db, r, run=None, escalation_reasons=fired if r.lane == Lane.ESCALATED else [])
     db.commit()
     db.refresh(r)
     return r
@@ -330,17 +298,74 @@ def create_inbound(
     db.flush()
     from .routing import apply_routing_rules
 
-    apply_routing_rules(db, r)  # inbound reviews route through admin rules too
+    fired = apply_routing_rules(db, r)  # inbound reviews route through admin rules too
     run = run_inbound_review(db, r)
-    r.state = RequestState.IN_REVIEW
     record_audit(
         db, org_id=org, action="review.completed", resource_type="Request", resource_id=r.id,
         actor_type=ActorType.AGENT, actor_label="Redline Engine",
         metadata={"summary": run.summary, "proposed_changes": len(run.changes), "source": source},
     )
+    finalize_round_governance(db, r, run=run,
+                              escalation_reasons=fired if r.lane == Lane.ESCALATED else [])
     db.commit()
     db.refresh(r)
     return r
+
+
+def finalize_round_governance(db: Session, r: Request, *, run=None,
+                              escalation_reasons: list[str] | None = None,
+                              extra_rungs: list[dict] | None = None) -> None:
+    """The score-driven governance chokepoint, shared by every round of every
+    contract path (outbound draft, inbound review, counterparty returns):
+
+        assess risk -> matrix picks rungs -> build/rebuild the ladder
+        -> empty ladder = AUTO (state APPROVED) | steps = IN_REVIEW
+
+    ``escalation_reasons`` (fired routing-rule names) are priced into the score
+    so a rule-escalated request can never land in the AUTO lane; ``extra_rungs``
+    lets workflow-template rules add steps ([{rung, reason}])."""
+    from .approvals import build_ladder_from_risk
+    from .request_types import risk_matrix_for
+    from .risk import assess_round
+
+    extra_factors = [
+        {"label": f"routing rule escalated: {name}", "points": 30, "kind": "DETERMINISTIC"}
+        for name in (escalation_reasons or [])
+    ]
+    assessment = assess_round(db, r, run=run, extra_factors=extra_factors)
+    matrix = risk_matrix_for(db, r.org_id, (r.type or "nda").lower())
+
+    forced: list[dict] = list(extra_rungs or [])
+    if run is not None and not (matrix.get(assessment.band.value) or forced):
+        # their paper never auto-clears, whatever the score says — a human
+        # reads it before anything goes back out
+        forced.append({"rung": "vp_legal",
+                       "reason": "Counterparty paper always gets human review before we respond."})
+
+    ladder = build_ladder_from_risk(db, r, assessment, matrix, extra_rungs=forced)
+    if ladder is None:
+        if r.lane != Lane.ESCALATED:
+            r.lane = Lane.AUTO
+        r.state = RequestState.APPROVED
+        record_audit(
+            db, org_id=r.org_id, action="request.auto_approved", resource_type="Request",
+            resource_id=r.id, actor_type=ActorType.AGENT, actor_label="Policy Engine",
+            metadata={"round": getattr(r, "round", 1) or 1, "risk_score": assessment.score,
+                      "band": assessment.band.value,
+                      "reasons": [f["label"] for f in (assessment.factors or [])][:8]
+                      or ["on-playbook draft, all facts within policy"]},
+        )
+    else:
+        if r.lane != Lane.ESCALATED:
+            r.lane = Lane.ASSISTED
+        r.state = RequestState.IN_REVIEW
+        record_audit(
+            db, org_id=r.org_id, action="review.requested", resource_type="Request",
+            resource_id=r.id, actor_type=ActorType.SYSTEM, actor_label="System",
+            metadata={"round": getattr(r, "round", 1) or 1, "risk_score": assessment.score,
+                      "band": assessment.band.value,
+                      "ladder": [s.rung for s in ladder.steps]},
+        )
 
 
 def looks_like_contract(body_text: str) -> bool:

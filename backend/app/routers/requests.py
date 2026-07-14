@@ -319,10 +319,21 @@ def _review_out(db: Session, r: Request) -> dict | None:
     }
 
 
+def _risk_out(a) -> dict:
+    return {
+        "round": a.round, "score": a.score, "band": a.band.value,
+        "factors": a.factors or [], "ai_adjustment": a.ai_adjustment,
+        "ai_note": a.ai_note or "", "model": a.model, "created_at": a.created_at,
+    }
+
+
 def _detail(db: Session, r: Request, user: User | None = None) -> dict:
+    from ..services.risk import assessment_history
+
     # The AI's PENDING answer proposal is reviewer-eyes-only: it must never reach
     # the requester before approval. Default (no user passed) is hide.
     show_draft = user is not None and can(user.role, Permission.REVIEW_DECIDE)
+    history = assessment_history(db, r.id)
     base = _summary(db, r)
     base.update(
         {
@@ -334,6 +345,8 @@ def _detail(db: Session, r: Request, user: User | None = None) -> dict:
             "details": r.details,
             "resolution_draft": r.resolution_draft if show_draft else None,
             "resolution_note": r.resolution_note,
+            "risk": _risk_out(history[-1]) if history else None,
+            "risk_history": [_risk_out(a) for a in history],
         }
     )
     return base

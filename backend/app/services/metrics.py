@@ -4,19 +4,26 @@ The value story is speed: NDAs handled fast, most without a lawyer. This compute
 the numbers a legal-ops buyer actually tracks (CLOC KPIs): deflection rate,
 SLA compliance, cycle time, and per-request SLA posture.
 
-SLA clock starts at ``created_at``. It stops when the request is RESOLVED (legal's
-work is done — approved to send onward, or already sent/signed/filed). Cancelled
-requests are excluded. Cycle time for resolved requests uses ``updated_at`` as the
-resolution timestamp (the last state transition).
+SLA clock starts at ``created_at``. It stops the moment legal's work is done —
+when the request first reaches a RESOLVED state (APPROVED, or auto-approved). That
+timestamp comes from the immutable audit ledger (the ``request.approved`` /
+``request.auto_approved`` event), NOT from ``Request.updated_at``: ``updated_at``
+keeps advancing on every downstream mutation (sent → out-for-signature → executed
+→ filed), so anchoring the clock to it would count the counterparty's countersign
+delay against legal and flip a 5-hour approval into a multi-day "miss". Cancelled
+requests are excluded.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Counterparty, Lane, Person, Request, RequestState
+from ..models import AuditEvent, Counterparty, Lane, Person, Request, RequestState
+
+# audit actions that mark the moment a request first became "legal is done"
+RESOLUTION_ACTIONS = ("request.approved", "request.auto_approved")
 
 # turnaround targets in hours, by triage lane (AUTO should be ~instant; escalations get longer)
 TARGET_HOURS = {"AUTO": 8, "ASSISTED": 24, "ESCALATED": 48}
@@ -42,6 +49,22 @@ def ops_metrics(db: Session, org_id: str) -> dict:
     today0 = now.replace(hour=0, minute=0, second=0, microsecond=0)
     reqs = db.execute(select(Request).where(Request.org_id == org_id)).scalars().all()
 
+    # Resolution timestamp per request = earliest approval event in the append-only
+    # audit ledger. Immutable, so (unlike updated_at) it never drifts as the request
+    # moves on to signature/filing. One grouped query for the whole org.
+    resolved_at: dict[str, datetime] = {
+        rid: _aware(ts)
+        for rid, ts in db.execute(
+            select(AuditEvent.resource_id, func.min(AuditEvent.created_at))
+            .where(
+                AuditEvent.org_id == org_id,
+                AuditEvent.resource_type == "Request",
+                AuditEvent.action.in_(RESOLUTION_ACTIONS),
+            )
+            .group_by(AuditEvent.resource_id)
+        ).all()
+    }
+
     total = len(reqs)
     auto = resolved = cancelled = in_flight = 0
     breached = at_risk = on_track = 0
@@ -53,7 +76,8 @@ def ops_metrics(db: Session, org_id: str) -> dict:
 
     for r in reqs:
         created = _aware(r.created_at)
-        updated = _aware(r.updated_at or r.created_at)
+        # fall back to updated_at only if the ledger has no approval event (legacy rows)
+        resolution = resolved_at.get(r.id) or _aware(r.updated_at or r.created_at)
         target = _target(r.lane)
         if r.lane == Lane.AUTO:
             auto += 1
@@ -70,7 +94,7 @@ def ops_metrics(db: Session, org_id: str) -> dict:
             status = "cancelled"
         elif r.state in RESOLVED_STATES:
             resolved += 1
-            cyc = max(0.0, (updated - created).total_seconds() / 3600)
+            cyc = max(0.0, (resolution - created).total_seconds() / 3600)
             cycle_sum += cyc
             cycle_n += 1
             if cyc <= target:

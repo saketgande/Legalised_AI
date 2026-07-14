@@ -2,11 +2,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, type OpsRow, type OpsSummary } from "../../lib/api";
 
-/* Format an hour count compactly: 3h, 0.5h, or 2.1d once it passes a day. */
+/* Format an hour count compactly: 3h, 0.5h, or 2.1d once it passes 3 days.
+   Stays in hours through 71h so every SLA target (max 48h) reads as "Nh",
+   matching the target legend, instead of a 48h target showing as "2.0d". */
 function fmtH(h: number | null): string {
   if (h === null) return "—";
   if (h < 1) return `${Math.round(h * 60)}m`;
-  if (h < 48) return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)}h`;
+  if (h < 72) return `${h < 10 ? h.toFixed(1).replace(/\.0$/, "") : Math.round(h)}h`;
   return `${(h / 24).toFixed(1)}d`;
 }
 
@@ -106,6 +108,11 @@ export default function SlaDashboard() {
 
   const deflection = Math.round(d.deflection_rate * 100);
   const compliance = d.sla.compliance_rate === null ? null : Math.round(d.sla.compliance_rate * 100);
+  // in-flight breakdown reconciles with the tile total: breached + at_risk + on_track === in_flight
+  const flight: JSX.Element[] = [];
+  if (d.sla.breached > 0) flight.push(<span key="b" className="crit">{d.sla.breached} breached</span>);
+  if (d.sla.at_risk > 0) flight.push(<span key="a" className="warn">{d.sla.at_risk} at risk</span>);
+  if (d.sla.on_track > 0) flight.push(<span key="o">{d.sla.on_track} on track</span>);
   const seg = (key: Filter, label: string) => (
     <button className={filter === key ? "on" : ""} onClick={() => setFilter(key)}>
       {label} <span className="tnum" style={{ opacity: 0.6 }}>{counts[key]}</span>
@@ -145,10 +152,9 @@ export default function SlaDashboard() {
           <div className="lbl">In flight</div>
           <div className="val">{d.totals.in_flight}</div>
           <div className="stat-sub">
-            {d.sla.at_risk > 0 && <span className="warn">{d.sla.at_risk} at risk</span>}
-            {d.sla.at_risk > 0 && d.sla.on_track > 0 && " · "}
-            {d.sla.on_track > 0 && <span>{d.sla.on_track} on track</span>}
-            {d.sla.at_risk === 0 && d.sla.on_track === 0 && "queue clear"}
+            {flight.length === 0
+              ? "queue clear"
+              : flight.map((el, i) => <span key={i}>{i > 0 ? " · " : ""}{el}</span>)}
           </div>
         </div>
         <div className={`stat ${d.sla.breached > 0 ? "stat-crit" : ""}`}>

@@ -122,6 +122,23 @@ export type SlaLeg = {
   breached_during_leg: boolean;
 };
 
+export type TabularDoc = {
+  request_id: string;
+  ref: string;
+  counterparty: string;
+  type: string;
+  doc_title: string;
+  url: string;
+};
+
+export type TabularCell = {
+  request_id: string;
+  col: number;
+  value: string;
+  section: string;
+  url: string | null;
+};
+
 export type AssistantSource = {
   n: number;
   kind: "clause" | "playbook" | "request" | string;
@@ -446,6 +463,51 @@ export const api = {
     }).then(j<{ token: string; user: AuthUser }>),
 
   me: () => fetch(`${BASE}/api/auth/me`, { headers: H(), cache: "no-store" }).then(j<AuthUser>),
+
+  // tabular review — document grid
+  tabularDocuments: () => fetch(`${BASE}/api/tabular/documents`, { cache: "no-store", headers: H() })
+    .then(j<{ rows: TabularDoc[] }>).then((r) => r.rows),
+  tabularRun: async (
+    request_ids: string[],
+    questions: string[],
+    handlers: { onMeta: (rows: TabularDoc[], questions: string[]) => void; onCell: (c: TabularCell) => void; onDone?: () => void },
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/api/tabular/run`, {
+      method: "POST",
+      headers: H({ "content-type": "application/json" }),
+      body: JSON.stringify({ request_ids, questions }),
+    });
+    if (res.status === 401) {
+      setToken(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) window.location.href = "/login";
+      throw new AuthError("unauthenticated");
+    }
+    if (!res.ok || !res.body) {
+      let msg = await res.text();
+      try { msg = JSON.parse(msg).detail ?? msg; } catch {}
+      throw new Error(msg || "tabular run failed");
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: { type: string; rows?: TabularDoc[]; questions?: string[] } & Partial<TabularCell>;
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "meta") handlers.onMeta(evt.rows || [], evt.questions || []);
+        else if (evt.type === "cell") handlers.onCell(evt as TabularCell);
+        else if (evt.type === "done") handlers.onDone?.();
+      }
+    }
+  },
 
   createRequest: (body: Record<string, unknown>) =>
     fetch(`${BASE}/api/requests`, JSON_POST(body)).then(j<RequestDetail>),

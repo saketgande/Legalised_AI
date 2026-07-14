@@ -20,7 +20,7 @@ from .config import assert_production_secrets, settings
 from .db import Base, SessionLocal, engine
 from .routers import (
     admin, assistant, auth, contracts, esign, inbound, intake, mailbox, meta, metrics,
-    playbook, requests, routing_admin, workflows,
+    playbook, requests, routing_admin, tabular, workflows,
 )
 
 log = logging.getLogger("frontdoor")
@@ -482,3 +482,4 @@ app.include_router(routing_admin.router)
 app.include_router(meta.router)
 app.include_router(workflows.router)
 app.include_router(assistant.router)
+app.include_router(tabular.router)

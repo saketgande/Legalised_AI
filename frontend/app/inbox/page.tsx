@@ -105,7 +105,7 @@ export default function Inbox() {
     const cur = shown[cursor];
     if (e.key === "j") setCursor((c) => Math.min(c + 1, shown.length - 1));
     else if (e.key === "k") setCursor((c) => Math.max(c - 1, 0));
-    else if (e.key === "Enter" && cur) window.location.href = `/review/${cur.id}`;
+    else if (e.key === "Enter" && cur) window.location.href = `/t/${cur.id}`;
     else if (e.key === "x" && cur && canQueueOps) {
       setSel((s) => { const n = new Set(s); n.has(cur.id) ? n.delete(cur.id) : n.add(cur.id); return n; });
     } else if (e.key === "m" && cur && user && canQueueOps) {
@@ -253,7 +253,7 @@ export default function Inbox() {
                     style={{ cursor: "pointer" }}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).tagName === "INPUT") return;
-                      window.location.href = `/review/${r.id}`;
+                      window.location.href = `/t/${r.id}`;
                     }}>
                     <td onClick={(e) => e.stopPropagation()}>
                       {canQueueOps && (

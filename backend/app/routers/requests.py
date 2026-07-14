@@ -586,6 +586,19 @@ def get_request(request_id: str, user: User = Depends(current_user), db: Session
     return _detail(db, r, user)
 
 
+@router.get("/requests/{request_id}/sla-legs")
+def get_sla_legs(request_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
+    """The ticket's SLA window partitioned into custody legs from the audit
+    ledger — who held the baton when, and which leg the breach fell in."""
+    from ..services.sla_legs import build_sla_legs
+
+    r = db.get(Request, request_id)
+    if r is None:
+        raise HTTPException(404, "request not found")
+    _authorize_read(db, user, r)
+    return {"ok": True, **build_sla_legs(db, r)}
+
+
 @router.get("/requests/{request_id}/status", response_model=RequesterStatusOut)
 def requester_status(request_id: str, user: User = Depends(current_user), db: Session = Depends(get_db)):
     r = db.get(Request, request_id)

@@ -110,6 +110,30 @@ export type WorkflowInstance = {
   rungs: WorkflowRung[];
 };
 
+export type SlaLeg = {
+  holder: "queue" | "agent" | "human";
+  holder_user_id: string | null;
+  holder_label: string;
+  start_ts: number;
+  end_ts: number;
+  elapsed_ms: number;
+  pct_of_sla: number;
+  active: boolean;
+  breached_during_leg: boolean;
+};
+
+export type SlaLegs = {
+  ok: boolean;
+  legs: SlaLeg[];
+  sla_ms: number;
+  sla_hours: number;
+  breach_ts: number;
+  total_elapsed_ms: number;
+  breached: boolean;
+  closed: boolean;
+  submitted_ts: number;
+};
+
 export type WorkflowTemplateOut = {
   id: string;
   type_key: string;
@@ -441,6 +465,9 @@ export const api = {
 
   getRequest: (id: string) =>
     fetch(`${BASE}/api/requests/${id}`, { cache: "no-store", headers: H() }).then(j<RequestDetail>),
+
+  slaLegs: (id: string) =>
+    fetch(`${BASE}/api/requests/${id}/sla-legs`, { cache: "no-store", headers: H() }).then(j<SlaLegs>),
 
   requesterStatus: (id: string) =>
     fetch(`${BASE}/api/requests/${id}/status`, { cache: "no-store", headers: H() }).then(j<RequesterStatus>),

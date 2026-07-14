@@ -122,6 +122,15 @@ export type SlaLeg = {
   breached_during_leg: boolean;
 };
 
+export type AssistantSource = {
+  n: number;
+  kind: "clause" | "playbook" | "request" | string;
+  title: string;
+  snippet: string;
+  request_id: string | null;
+  url: string | null;
+};
+
 export type SlaLegs = {
   ok: boolean;
   legs: SlaLeg[];
@@ -468,6 +477,49 @@ export const api = {
 
   slaLegs: (id: string) =>
     fetch(`${BASE}/api/requests/${id}/sla-legs`, { cache: "no-store", headers: H() }).then(j<SlaLegs>),
+
+  // grounded assistant — streams SSE frames: sources → deltas → done
+  assistantAsk: async (
+    query: string,
+    requestId: string | null,
+    handlers: { onSources: (s: AssistantSource[]) => void; onDelta: (t: string) => void; onDone?: () => void },
+  ): Promise<void> => {
+    const res = await fetch(`${BASE}/api/assistant/ask`, {
+      method: "POST",
+      headers: H({ "content-type": "application/json" }),
+      body: JSON.stringify({ query, request_id: requestId }),
+    });
+    if (res.status === 401) {
+      setToken(null);
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) window.location.href = "/login";
+      throw new AuthError("unauthenticated");
+    }
+    if (!res.ok || !res.body) {
+      let msg = await res.text();
+      try { msg = JSON.parse(msg).detail ?? msg; } catch {}
+      throw new Error(msg || "assistant failed");
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const frame = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        const line = frame.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let evt: { type: string; sources?: AssistantSource[]; text?: string };
+        try { evt = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (evt.type === "sources") handlers.onSources(evt.sources || []);
+        else if (evt.type === "delta") handlers.onDelta(evt.text || "");
+        else if (evt.type === "done") handlers.onDone?.();
+      }
+    }
+  },
 
   requesterStatus: (id: string) =>
     fetch(`${BASE}/api/requests/${id}/status`, { cache: "no-store", headers: H() }).then(j<RequesterStatus>),

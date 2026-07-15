@@ -757,6 +757,41 @@ a.src-row:hover { background: var(--surface-hover); }
   color: var(--ink); font-family: var(--sans); max-height: 160px; padding: 6px 0; outline: none; }
 .composer .btn { flex-shrink: 0; border-radius: 10px; }
 
+/* Assistant workspace — thread rail + conversation column + inline rich cards */
+.asst-grid { display: grid; grid-template-columns: 240px 1fr; gap: 0;
+  height: calc(100vh - 92px); margin: -4px 0; }
+.thread-rail { display: flex; flex-direction: column; gap: 4px; padding: 4px 16px 8px 0;
+  border-right: 1px solid var(--line); overflow: hidden; }
+.thr-new { width: 100%; text-align: left; background: var(--accent); color: #fff; border: 0;
+  border-radius: 9px; padding: 10px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  transition: filter .15s; }
+.thr-new:hover { filter: brightness(1.08); }
+.thr-lab { font-family: var(--mono); font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--faint); margin: 12px 0 4px; padding: 0 8px; }
+.thr-item { width: 100%; text-align: left; background: none; border: 0; border-radius: 7px;
+  padding: 7px 8px; font-size: 12.5px; color: var(--muted); cursor: pointer; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; transition: background .12s, color .12s; }
+.thr-item:hover { background: var(--surface-hover); color: var(--ink); }
+.thr-item.on { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.chat-col { display: flex; flex-direction: column; min-width: 0; padding-left: 24px; }
+.chat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+.chat-scroll { flex: 1; overflow-y: auto; padding: 20px 4px 8px; min-height: 0; }
+.chat-composer { flex-shrink: 0; padding-top: 12px; }
+.rich-card { margin-top: 10px; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden; }
+.rich-head { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--surface-2);
+  font-size: 12px; color: var(--muted); }
+.rich-open { font-family: var(--mono); font-size: 10.5px; color: var(--teal); text-decoration: none;
+  letter-spacing: 0.04em; white-space: nowrap; }
+.rich-open:hover { text-decoration: underline; }
+@media (max-width: 980px) {
+  .asst-grid { grid-template-columns: 1fr; height: auto; }
+  .thread-rail { display: none; }
+  .chat-col { padding-left: 0; }
+}
+
 /* ————— Tabular Review ————— */
 .tab-cols { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
   padding: 10px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }

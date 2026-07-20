@@ -11,14 +11,13 @@ type Group = { label: string; items: Item[] };
 
 const GROUPS: Group[] = [
   {
+    // One operations home — the merged dashboard surfaces the daily brief,
+    // decision feed, live intake queue, pipeline, SLA health, reviewer pool and
+    // contracts-due at a glance. The detailed screens (inbox, cockpit, ops
+    // workspace, SLA, contracts) remain reachable via each section's "see all".
     label: "Work",
     items: [
-      { href: "/", label: "Home", perm: null, gl: "◎", c: C.em },  // the supervisor feed / daily brief
-      { href: "/inbox", label: "Legal Intake", perm: "request:read_all", gl: "◆", c: C.cy },
-      { href: "/cockpit", label: "Triage Cockpit", perm: "request:read_all", gl: "◈", c: C.em },
-      { href: "/workspace", label: "Ops Workspace", perm: "request:read_all", gl: "▦", c: C.pp },
-      { href: "/contracts", label: "Contracts", perm: "request:read_all", gl: "▤", c: C.bl },
-      { href: "/sla", label: "SLA & Operations", perm: "request:read_all", gl: "◉", c: C.am },
+      { href: "/", label: "Home", perm: null, gl: "◎", c: C.em },
     ],
   },
   {
